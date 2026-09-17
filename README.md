@@ -10,8 +10,14 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 
 - Frontend: React + Vite
 - Backend: Node.js + Express
+- Database: Supabase PostgreSQL
 - UI: Tailwind CSS + shadcn/ui
 - Icons: Lucide React
+
+## Phase Status
+
+- Phase 0 completed: project foundation, dashboard shell, Express API, health route, and environment examples.
+- Phase 1 completed: Supabase PostgreSQL schema migration, schema documentation, and backend database configuration placeholders.
 
 ## Phase 0 Scope
 
@@ -25,7 +31,16 @@ Phase 0 establishes the project foundation only:
 - Frontend API service for backend health status
 - Environment example files
 
-Business logic will be added in later phases. This phase intentionally does not include database setup, authentication, lead upload, GHL integration, AI, email sending, reply checking, follow-ups, notifications, or workers.
+## Phase 1 Scope
+
+Phase 1 adds the database foundation only:
+
+- Initial schema migration at `backend/db/migrations/001_initial_schema.sql`
+- Schema documentation at `backend/db/SCHEMA.md`
+- Backend Supabase/PostgreSQL config placeholders
+- Environment variable examples for Supabase and PostgreSQL
+
+Business logic will be added in later phases. The current project intentionally does not include authentication, lead upload, GHL integration, AI, email sending, reply checking, follow-ups, notifications delivery, or workers.
 
 ## Frontend
 
@@ -46,6 +61,16 @@ npm run dev
 ```
 
 The backend runs at `http://localhost:5000` by default.
+
+## Database Migration
+
+The Phase 1 database migration is located at:
+
+```bash
+backend/db/migrations/001_initial_schema.sql
+```
+
+Apply this SQL in a Supabase PostgreSQL project when you are ready to create the schema. Do not commit real `.env` files or secrets.
 
 ## Verify Phase 0
 
