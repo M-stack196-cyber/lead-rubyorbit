@@ -6,6 +6,7 @@ import { emailAccountsRouter } from '../modules/emailAccounts/emailAccounts.rout
 import { emailDraftsRouter } from '../modules/emailDrafts/emailDrafts.routes.js'
 import { emailSendingRouter } from '../modules/emailSending/emailSending.routes.js'
 import { ghlRouter } from '../modules/ghl/ghl.routes.js'
+import { gmailRouter } from '../modules/gmail/gmail.routes.js'
 import { leadUploadsRouter } from '../modules/leadUploads/leadUploads.routes.js'
 import { leadsRouter } from '../modules/leads/leads.routes.js'
 
@@ -16,6 +17,7 @@ apiRoutes.use('/lead-uploads', leadUploadsRouter)
 apiRoutes.use('/campaigns', campaignsRouter)
 apiRoutes.use('/leads', leadsRouter)
 apiRoutes.use('/ghl', ghlRouter)
+apiRoutes.use('/gmail', gmailRouter)
 apiRoutes.use('/email-drafts', emailDraftsRouter)
 apiRoutes.use('/email-accounts', emailAccountsRouter)
 apiRoutes.use('/email-sending', emailSendingRouter)

@@ -21,5 +21,14 @@ export const env = {
   emailSend: {
     mode: process.env.EMAIL_SEND_MODE || 'mock',
   },
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID || '',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    oauthRedirectUri:
+      process.env.GOOGLE_OAUTH_REDIRECT_URI || 'http://localhost:5000/api/gmail/oauth/callback',
+    oauthScopes:
+      process.env.GOOGLE_OAUTH_SCOPES ||
+      'https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly',
+  },
   databaseUrl: process.env.DATABASE_URL || '',
 }

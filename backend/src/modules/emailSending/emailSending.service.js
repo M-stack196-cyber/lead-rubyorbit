@@ -1,5 +1,6 @@
 import { env } from '../../config/env.js'
 import { createSupabaseServiceClient } from '../../config/supabase.js'
+import { sendGmailMessage } from '../gmail/gmail.sender.js'
 import { sendMockEmail } from './emailSending.mockSender.js'
 
 const draftSelect = `
@@ -32,7 +33,12 @@ const accountSelect = `
   is_enabled,
   daily_send_limit,
   sent_today,
-  last_used_at
+  last_used_at,
+  gmail_email,
+  gmail_token_status,
+  gmail_refresh_token_encrypted,
+  gmail_access_token_encrypted,
+  gmail_token_expires_at
 `
 
 const sentEmailSelect = `
@@ -139,11 +145,14 @@ function mapSentEmail(row) {
 
 export function getEmailSendingStatus() {
   const mode = env.emailSend.mode || 'mock'
+  const isLive = mode === 'live'
 
   return {
     mode,
-    realSendingEnabled: false,
-    message: 'Mock sending mode active. No real emails are sent.',
+    realSendingEnabled: isLive,
+    message: isLive
+      ? 'Live Gmail sending mode active. Connected Gmail accounts can send real emails.'
+      : 'Mock sending mode active. No real emails are sent.',
   }
 }
 
@@ -224,6 +233,32 @@ function validateEmailAccount(account) {
   }
 }
 
+function getSendMode() {
+  return env.emailSend.mode === 'live' ? 'live' : 'mock'
+}
+
+function validateLiveEmailAccount(account) {
+  if (account.provider !== 'gmail') {
+    throw createHttpError('Live email sending only supports Gmail accounts in this phase.', 400)
+  }
+
+  if (account.gmail_token_status !== 'connected') {
+    throw createHttpError('Gmail must be connected with Google OAuth before live sending.', 400)
+  }
+}
+
+async function sendDraftThroughProvider(draft, account) {
+  if (getSendMode() === 'mock') {
+    return sendMockEmail({
+      campaignLeadId: draft.campaign_lead_id,
+      leadId: draft.lead_id,
+    })
+  }
+
+  validateLiveEmailAccount(account)
+  return sendGmailMessage({ account, draft })
+}
+
 async function sendDraftWithClient(supabase, draft, account) {
   validateDraft(draft)
   validateEmailAccount(account)
@@ -234,10 +269,7 @@ async function sendDraftWithClient(supabase, draft, account) {
     throw createHttpError('Email draft has already been sent.', 409)
   }
 
-  const mockResult = await sendMockEmail({
-    campaignLeadId: draft.campaign_lead_id,
-    leadId: draft.lead_id,
-  })
+  const sendResult = await sendDraftThroughProvider(draft, account)
 
   const { data, error: insertError } = await supabase
     .from('sent_emails')
@@ -252,12 +284,12 @@ async function sendDraftWithClient(supabase, draft, account) {
       subject: draft.subject,
       body: draft.body,
       provider: account.provider,
-      provider_message_id: mockResult.messageId,
-      provider_thread_id: mockResult.threadId,
-      message_id: mockResult.messageId,
-      thread_id: mockResult.threadId,
+      provider_message_id: sendResult.messageId,
+      provider_thread_id: sendResult.threadId,
+      message_id: sendResult.messageId,
+      thread_id: sendResult.threadId,
       status: 'sent',
-      sent_at: mockResult.sentAt,
+      sent_at: sendResult.sentAt,
     })
     .select(sentEmailSelect)
     .single()

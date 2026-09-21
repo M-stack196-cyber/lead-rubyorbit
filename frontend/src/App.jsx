@@ -14,7 +14,12 @@ const pages = {
 
 function getCurrentPage() {
   const page = window.location.hash.replace('#', '')
-  return pages[page] ? page : 'dashboard'
+  const pathPage = window.location.pathname.replace(/^\//, '')
+
+  if (pages[page]) return page
+  if (pages[pathPage]) return pathPage
+
+  return 'dashboard'
 }
 
 export default function App() {

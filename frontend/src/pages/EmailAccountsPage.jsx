@@ -5,10 +5,12 @@ import {
   Edit3,
   Loader2,
   MailCheck,
+  Plug,
   RefreshCcw,
   Save,
   ShieldOff,
   Archive,
+  Unplug,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -16,10 +18,13 @@ import { cn } from '@/lib/utils'
 import {
   archiveEmailAccount,
   createEmailAccount,
+  disconnectGmailAccount,
   disableEmailAccount,
   enableEmailAccount,
   getEmailAccountById,
   getEmailAccounts,
+  getGmailConnectUrl,
+  getGmailStatus,
   updateEmailAccount,
 } from '@/services/api'
 
@@ -46,11 +51,19 @@ const statusVariants = {
   error: 'destructive',
 }
 
+const gmailStatusVariants = {
+  connected: 'success',
+  disconnected: 'secondary',
+  error: 'destructive',
+  expired: 'warning',
+}
+
 export function EmailAccountsPage() {
   const [accounts, setAccounts] = useState([])
   const [form, setForm] = useState(defaultForm)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [gmailStatus, setGmailStatus] = useState(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -68,12 +81,25 @@ export function EmailAccountsPage() {
     loadAccounts()
   }, [])
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const gmailResult = params.get('gmail')
+
+    if (gmailResult === 'connected') {
+      setSuccess('Gmail connected successfully.')
+    } else if (gmailResult === 'error') {
+      setError('Gmail OAuth connection failed. Try connecting again.')
+    }
+  }, [])
+
   async function loadAccounts() {
     setIsLoading(true)
     setError('')
 
     try {
-      setAccounts(await getEmailAccounts())
+      const [accountList, gmailConfig] = await Promise.all([getEmailAccounts(), getGmailStatus()])
+      setAccounts(accountList)
+      setGmailStatus(gmailConfig)
     } catch (loadError) {
       setError(loadError.message)
     } finally {
@@ -170,18 +196,36 @@ export function EmailAccountsPage() {
     }
   }
 
+  async function connectGmail(accountId) {
+    setIsSaving(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await getGmailConnectUrl(accountId)
+      window.location.assign(result.authUrl)
+    } catch (connectError) {
+      setError(connectError.message)
+      setIsSaving(false)
+    }
+  }
+
+  async function disconnectGmail(accountId) {
+    await runAction(disconnectGmailAccount, accountId, 'Gmail disconnected.')
+  }
+
   return (
     <>
       <header className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <Badge variant="outline" className="mb-3 bg-white">
-            Phase 6 Email Accounts
+            Phase 8 Email Accounts
           </Badge>
           <h1 className="text-3xl font-semibold tracking-normal text-slate-950">
             Email Accounts
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Email accounts can be managed here, but emails are not sent in this phase.
+            Gmail accounts can be connected with Google OAuth before live sending is enabled.
           </p>
         </div>
         <button
@@ -214,9 +258,12 @@ export function EmailAccountsPage() {
 
         <AccountsTable
           accounts={accounts}
+          gmailStatus={gmailStatus}
           isLoading={isLoading}
           isSaving={isSaving}
           onArchive={(id) => runAction(archiveEmailAccount, id, 'Email account archived.')}
+          onConnectGmail={connectGmail}
+          onDisconnectGmail={disconnectGmail}
           onDisable={(id) => runAction(disableEmailAccount, id, 'Email account disabled.')}
           onEdit={editAccount}
           onEnable={(id) => runAction(enableEmailAccount, id, 'Email account enabled.')}
@@ -267,7 +314,7 @@ function AccountForm({ form, isSaving, onChange, onReset, onSubmit }) {
         <CardTitle className="text-base text-slate-950">
           {isEditing ? 'Edit Account' : 'Create Account'}
         </CardTitle>
-        <CardDescription>Secrets are not used for sending in Phase 6.</CardDescription>
+        <CardDescription>Gmail live sending requires Google OAuth connection.</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="space-y-4" onSubmit={onSubmit}>
@@ -379,7 +426,18 @@ function AccountForm({ form, isSaving, onChange, onReset, onSubmit }) {
   )
 }
 
-function AccountsTable({ accounts, isLoading, isSaving, onArchive, onDisable, onEdit, onEnable }) {
+function AccountsTable({
+  accounts,
+  gmailStatus,
+  isLoading,
+  isSaving,
+  onArchive,
+  onConnectGmail,
+  onDisconnectGmail,
+  onDisable,
+  onEdit,
+  onEnable,
+}) {
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -403,6 +461,7 @@ function AccountsTable({ accounts, isLoading, isSaving, onArchive, onDisable, on
                   <tr>
                     <th className="px-4 py-3">Account</th>
                     <th className="px-4 py-3">Provider</th>
+                    <th className="px-4 py-3">Gmail OAuth</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Enabled</th>
                     <th className="px-4 py-3">Daily limit</th>
@@ -422,6 +481,27 @@ function AccountsTable({ accounts, isLoading, isSaving, onArchive, onDisable, on
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-700">
                         {account.provider}
+                      </td>
+                      <td className="min-w-56 px-4 py-3">
+                        {account.provider === 'gmail' ? (
+                          <div className="space-y-1">
+                            <StatusBadge
+                              status={account.gmailTokenStatus || 'disconnected'}
+                              variants={gmailStatusVariants}
+                            />
+                            {account.gmailEmail ? (
+                              <p className="text-xs text-slate-500">{account.gmailEmail}</p>
+                            ) : null}
+                            <p className="text-xs text-slate-500">
+                              Gmail must be connected with Google OAuth before live sending.
+                            </p>
+                            {!gmailStatus?.configured ? (
+                              <p className="text-xs text-amber-700">Google OAuth is not configured.</p>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-slate-400">-</span>
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
                         <StatusBadge status={account.status} />
@@ -445,6 +525,25 @@ function AccountsTable({ accounts, isLoading, isSaving, onArchive, onDisable, on
                             label="Edit"
                             onClick={() => onEdit(account)}
                           />
+                          {account.provider === 'gmail' ? (
+                            <>
+                              <ActionButton
+                                IconComponent={Plug}
+                                label="Connect Gmail"
+                                onClick={() => onConnectGmail(account.id)}
+                                disabled={isSaving || !gmailStatus?.configured}
+                              />
+                              <ActionButton
+                                IconComponent={Unplug}
+                                label="Disconnect Gmail"
+                                onClick={() => onDisconnectGmail(account.id)}
+                                disabled={
+                                  isSaving ||
+                                  (account.gmailTokenStatus || 'disconnected') === 'disconnected'
+                                }
+                              />
+                            </>
+                          ) : null}
                           <ActionButton
                             IconComponent={CheckCircle2}
                             label="Enable"
@@ -541,8 +640,8 @@ function FormSelect({ disabled = false, label, onChange, options, value }) {
   )
 }
 
-function StatusBadge({ status }) {
-  return <Badge variant={statusVariants[status] || 'secondary'}>{status}</Badge>
+function StatusBadge({ status, variants = statusVariants }) {
+  return <Badge variant={variants[status] || 'secondary'}>{status}</Badge>
 }
 
 function formatDate(value) {

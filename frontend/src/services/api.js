@@ -280,6 +280,29 @@ export async function archiveEmailAccount(accountId) {
   return payload.data
 }
 
+export async function getGmailStatus() {
+  const response = await fetch(`${API_BASE_URL}/api/gmail/status`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getGmailConnectUrl(emailAccountId) {
+  const response = await fetch(`${API_BASE_URL}/api/gmail/connect/${emailAccountId}`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function disconnectGmailAccount(emailAccountId) {
+  const response = await fetch(`${API_BASE_URL}/api/gmail/disconnect/${emailAccountId}`, {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
 export async function getEmailSendingStatus() {
   const response = await fetch(`${API_BASE_URL}/api/email-sending/status`)
 

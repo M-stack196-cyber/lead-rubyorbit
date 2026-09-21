@@ -21,7 +21,7 @@ export async function sendEmailDraftController(req, res, next) {
     const result = await sendEmailDraft(req.params.draftId, req.body)
 
     res.status(201).json({
-      message: 'Email draft sent in mock mode.',
+      message: 'Email draft sent successfully.',
       data: result,
     })
   } catch (error) {
@@ -34,7 +34,7 @@ export async function sendCampaignEmailsController(req, res, next) {
     const result = await sendCampaignEmails(req.params.campaignId, req.body)
 
     res.json({
-      message: 'Campaign email send completed in mock mode.',
+      message: 'Campaign email send completed successfully.',
       data: result,
     })
   } catch (error) {
