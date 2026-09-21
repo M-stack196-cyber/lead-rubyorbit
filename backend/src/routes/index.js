@@ -9,6 +9,7 @@ import { ghlRouter } from '../modules/ghl/ghl.routes.js'
 import { gmailRouter } from '../modules/gmail/gmail.routes.js'
 import { leadUploadsRouter } from '../modules/leadUploads/leadUploads.routes.js'
 import { leadsRouter } from '../modules/leads/leads.routes.js'
+import { noReplyMonitoringRouter } from '../modules/noReplyMonitoring/noReplyMonitoring.routes.js'
 import { replyMonitoringRouter } from '../modules/replyMonitoring/replyMonitoring.routes.js'
 import { teamDecisionsRouter } from '../modules/teamDecisions/teamDecisions.routes.js'
 import { listReplyReplyDraftsController } from '../modules/emailDrafts/emailDrafts.controller.js'
@@ -26,6 +27,7 @@ apiRoutes.use('/email-drafts', emailDraftsRouter)
 apiRoutes.use('/email-accounts', emailAccountsRouter)
 apiRoutes.use('/email-sending', emailSendingRouter)
 apiRoutes.use('/reply-monitoring', replyMonitoringRouter)
+apiRoutes.use('/no-reply-monitoring', noReplyMonitoringRouter)
 apiRoutes.use('/team-decisions', teamDecisionsRouter)
 apiRoutes.get('/replies/:replyId/reply-drafts', listReplyReplyDraftsController)
 apiRoutes.get('/replies/:replyId/team-decisions', listReplyTeamDecisionsController)

@@ -425,6 +425,53 @@ export async function getSentEmailReplies(sentEmailId) {
   return payload.data
 }
 
+export async function getNoReplyMonitoringStatus() {
+  const response = await fetch(`${API_BASE_URL}/api/no-reply-monitoring/status`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function checkNoReplySentEmail(sentEmailId, timeoutDays) {
+  const response = await fetch(`${API_BASE_URL}/api/no-reply-monitoring/check-sent-email/${sentEmailId}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ timeoutDays }),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function checkNoReplyCampaign(campaignId, timeoutDays) {
+  const response = await fetch(`${API_BASE_URL}/api/no-reply-monitoring/check-campaign/${campaignId}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ timeoutDays }),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignNoReplies(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/no-reply-monitoring/campaigns/${campaignId}/no-replies`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getSentEmailNoReplyStatus(sentEmailId) {
+  const response = await fetch(`${API_BASE_URL}/api/no-reply-monitoring/sent-emails/${sentEmailId}/no-reply-status`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
 export async function getTeamDecisions() {
   const response = await fetch(`${API_BASE_URL}/api/team-decisions`)
 

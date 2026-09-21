@@ -13,6 +13,7 @@ Phase 1 adds the Supabase PostgreSQL schema foundation for LeadRubyOrbit. Later 
 - Phase 11 Gmail reply monitoring fields on `replies`
 - Phase 12 team decision fields on `team_decisions`
 - Phase 13 reply draft workflow fields on `email_drafts`
+- Phase 14 no-reply timeout fields on `sent_emails` and `campaign_leads`
 - Status check constraints for important workflow fields
 - Foreign key relationships between workflow entities
 - Useful lookup indexes
@@ -42,7 +43,7 @@ Stores campaign shells and optional future GHL workflow references. Campaign sta
 
 ### campaign_leads
 
-Joins campaigns to leads and tracks future sync/outreach state. Each lead can appear once per campaign. GHL sync statuses are `pending`, `synced`, and `failed`. Phase 4 stores `ghl_contact_id`, `ghl_sync_error`, `ghl_synced_at`, and `ghl_workflow_id` here because sync is campaign-specific. Outreach statuses cover the later workflow from pending sync through approval, sending, reply handling, follow-up, qualification, pause, and stop states.
+Joins campaigns to leads and tracks future sync/outreach state. Each lead can appear once per campaign. GHL sync statuses are `pending`, `synced`, and `failed`. Phase 4 stores `ghl_contact_id`, `ghl_sync_error`, `ghl_synced_at`, and `ghl_workflow_id` here because sync is campaign-specific. Outreach statuses cover the later workflow from pending sync through approval, sending, reply handling, follow-up, qualification, pause, and stop states. Phase 14 stores `last_no_reply_checked_at` and `next_followup_due_at` for manual no-reply review.
 
 ### email_accounts
 
@@ -54,7 +55,7 @@ Stores draft email content and approval state. Draft types are `primary`, `follo
 
 ### sent_emails
 
-Stores sent email records and provider message/thread references. Later migrations add provider, message/thread aliases, and error details. Statuses include `queued`, `sent`, `failed`, `blocked`, `waiting_reply`, `replied`, and `no_reply`.
+Stores sent email records and provider message/thread references. Later migrations add provider, message/thread aliases, and error details. Statuses include `queued`, `sent`, `failed`, `blocked`, `waiting_reply`, `replied`, and `no_reply`. Phase 14 stores no-reply check timestamps, due timestamps, marked timestamps, and reply deadlines for manual timeout checks.
 
 ### replies
 
@@ -70,7 +71,7 @@ Stores campaign-level timing settings for future reply checking and waiting peri
 
 ### team_decisions
 
-Stores manual decision tasks for the team. Phase 12 links decisions to replies and sent emails, stores `decision_type`, assignment and creator fields, and uses statuses `pending`, `completed`, and `cancelled`. Decision types are `stop_outreach`, `manual_handling`, `create_reply_draft`, `mark_qualified`, and `continue_later`. Legacy `reason` and `action` fields remain for compatibility.
+Stores manual decision tasks for the team. Phase 12 links decisions to replies and sent emails, stores `decision_type`, assignment and creator fields, and uses statuses `pending`, `completed`, and `cancelled`. Decision types are `stop_outreach`, `manual_handling`, `create_reply_draft`, `mark_qualified`, and `continue_later`. Legacy `reason` and `action` fields remain for compatibility. Phase 14 creates pending `no_reply_timeout` decisions and prevents duplicate pending decisions per sent email.
 
 ### notifications
 

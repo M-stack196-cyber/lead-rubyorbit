@@ -30,6 +30,7 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 - Phase 11 completed: Gmail reply monitoring foundation with manual Gmail readonly checks and campaign reply display.
 - Phase 12 completed: team decision system after reply detection.
 - Phase 13 completed: reply draft handling and manual reply workflow.
+- Phase 14 completed: no-reply timeout handling for manual team review.
 
 ## Phase 0 Scope
 
@@ -182,6 +183,18 @@ Phase 13 adds manual reply draft handling only:
 
 Phase 13 does not add automatic reply generation, automatic follow-up sending, schedulers, or cron workers. Sending is manual only.
 
+## Phase 14 Scope
+
+Phase 14 adds no-reply timeout handling only:
+
+- Sent emails are considered no-reply only when their status is `sent` or `waiting_reply`, `sent_at` exists, no reply exists for that sent email, and the current time is after `sent_at + timeoutDays`
+- Default timeout is 3 days, with API validation for 1 to 30 days
+- No-reply checks mark sent emails as `no_reply`, update campaign lead outreach state, and create a pending team decision for manual review
+- Duplicate checks do not create duplicate pending no-reply decisions
+- Campaign detail UI includes no-reply status summaries, campaign checks, individual sent-email checks, and no-reply lead review rows
+
+Phase 14 does not send follow-ups automatically. Follow-up sending remains manual or a future phase.
+
 ## API Endpoints
 
 ### Health
@@ -261,6 +274,14 @@ Phase 13 does not add automatic reply generation, automatic follow-up sending, s
 - `GET /api/reply-monitoring/sent-emails/:sentEmailId/replies`
 - `GET /api/replies/:replyId/reply-drafts`
 
+### No-Reply Monitoring
+
+- `GET /api/no-reply-monitoring/status`
+- `POST /api/no-reply-monitoring/check-sent-email/:sentEmailId`
+- `POST /api/no-reply-monitoring/check-campaign/:campaignId`
+- `GET /api/no-reply-monitoring/campaigns/:campaignId/no-replies`
+- `GET /api/no-reply-monitoring/sent-emails/:sentEmailId/no-reply-status`
+
 ## Frontend
 
 ```bash
@@ -295,6 +316,7 @@ backend/db/migrations/006_gmail_oauth_fields.sql
 backend/db/migrations/007_reply_monitoring_fields.sql
 backend/db/migrations/008_team_decision_fields.sql
 backend/db/migrations/009_reply_draft_workflow_fields.sql
+backend/db/migrations/010_no_reply_timeout_fields.sql
 ```
 
 Apply these SQL migrations in a Supabase PostgreSQL project when you are ready to create or update the schema. Do not commit real `.env` files or secrets.

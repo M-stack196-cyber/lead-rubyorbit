@@ -22,6 +22,8 @@ import { cn } from '@/lib/utils'
 import {
   addLeadsToCampaign,
   approveEmailDraft,
+  checkNoReplyCampaign,
+  checkNoReplySentEmail,
   checkCampaignReplies,
   checkSentEmailReplies,
   cancelTeamDecision,
@@ -33,6 +35,7 @@ import {
   getCampaignGhlSyncStatus,
   getCampaignLeads,
   getCampaignReplies,
+  getCampaignNoReplies,
   getCampaignReplyDrafts,
   getCampaignSentEmails,
   getCampaignTeamDecisions,
@@ -41,6 +44,7 @@ import {
   getEmailSendingStatus,
   getGhlSettingsStatus,
   getLeads,
+  getNoReplyMonitoringStatus,
   getReplyMonitoringStatus,
   rejectEmailDraft,
   retryFailedGhlSync,
@@ -94,9 +98,12 @@ export function CampaignsPage() {
   const [sentEmails, setSentEmails] = useState([])
   const [replyMonitoringStatus, setReplyMonitoringStatus] = useState(null)
   const [campaignReplies, setCampaignReplies] = useState([])
+  const [noReplyMonitoringStatus, setNoReplyMonitoringStatus] = useState(null)
+  const [campaignNoReplies, setCampaignNoReplies] = useState([])
   const [replyDrafts, setReplyDrafts] = useState([])
   const [teamDecisions, setTeamDecisions] = useState([])
   const [lastReplyCheckSummary, setLastReplyCheckSummary] = useState(null)
+  const [lastNoReplyCheckSummary, setLastNoReplyCheckSummary] = useState(null)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState('')
   const [selectedDraftId, setSelectedDraftId] = useState('')
   const [draftForm, setDraftForm] = useState(defaultDraftForm)
@@ -114,7 +121,9 @@ export function CampaignsPage() {
   const [isDraftSaving, setIsDraftSaving] = useState(false)
   const [isEmailSending, setIsEmailSending] = useState(false)
   const [isReplyChecking, setIsReplyChecking] = useState(false)
+  const [isNoReplyChecking, setIsNoReplyChecking] = useState(false)
   const [checkingSentEmailId, setCheckingSentEmailId] = useState('')
+  const [checkingNoReplySentEmailId, setCheckingNoReplySentEmailId] = useState('')
   const [activeDecisionId, setActiveDecisionId] = useState('')
   const [activeReplyDraftId, setActiveReplyDraftId] = useState('')
   const [isReplyDraftSaving, setIsReplyDraftSaving] = useState(false)
@@ -166,6 +175,8 @@ export function CampaignsPage() {
         accounts,
         replyStatus,
         replies,
+        noReplyStatus,
+        noReplies,
         replyDraftList,
         decisions,
       ] = await Promise.all([
@@ -179,6 +190,8 @@ export function CampaignsPage() {
           getEmailAccounts(),
           getReplyMonitoringStatus(),
           getCampaignReplies(campaignId),
+          getNoReplyMonitoringStatus(),
+          getCampaignNoReplies(campaignId),
           getCampaignReplyDrafts(campaignId),
           getCampaignTeamDecisions(campaignId),
         ])
@@ -192,6 +205,8 @@ export function CampaignsPage() {
       setEmailAccounts(accounts)
       setReplyMonitoringStatus(replyStatus)
       setCampaignReplies(replies)
+      setNoReplyMonitoringStatus(noReplyStatus)
+      setCampaignNoReplies(noReplies)
       setReplyDrafts(replyDraftList)
       setTeamDecisions(decisions)
       setSelectedEmailAccountId((currentAccountId) => {
@@ -227,6 +242,8 @@ export function CampaignsPage() {
       setEmailDrafts([])
       setSentEmails([])
       setCampaignReplies([])
+      setNoReplyMonitoringStatus(null)
+      setCampaignNoReplies([])
       setReplyDrafts([])
       setTeamDecisions([])
     }
@@ -392,10 +409,13 @@ export function CampaignsPage() {
   async function reloadReplies(campaignId = selectedCampaignId) {
     if (!campaignId) return
 
-    const [sentEmailList, replies, replyStatus, replyDraftList, decisions] = await Promise.all([
+    const [sentEmailList, replies, replyStatus, noReplyStatus, noReplies, replyDraftList, decisions] =
+      await Promise.all([
       getCampaignSentEmails(campaignId),
       getCampaignReplies(campaignId),
       getReplyMonitoringStatus(),
+      getNoReplyMonitoringStatus(),
+      getCampaignNoReplies(campaignId),
       getCampaignReplyDrafts(campaignId),
       getCampaignTeamDecisions(campaignId),
     ])
@@ -403,7 +423,25 @@ export function CampaignsPage() {
     setSentEmails(sentEmailList)
     setCampaignReplies(replies)
     setReplyMonitoringStatus(replyStatus)
+    setNoReplyMonitoringStatus(noReplyStatus)
+    setCampaignNoReplies(noReplies)
     setReplyDrafts(replyDraftList)
+    setTeamDecisions(decisions)
+  }
+
+  async function reloadNoReplies(campaignId = selectedCampaignId) {
+    if (!campaignId) return
+
+    const [sentEmailList, noReplyStatus, noReplies, decisions] = await Promise.all([
+      getCampaignSentEmails(campaignId),
+      getNoReplyMonitoringStatus(),
+      getCampaignNoReplies(campaignId),
+      getCampaignTeamDecisions(campaignId),
+    ])
+
+    setSentEmails(sentEmailList)
+    setNoReplyMonitoringStatus(noReplyStatus)
+    setCampaignNoReplies(noReplies)
     setTeamDecisions(decisions)
   }
 
@@ -587,6 +625,57 @@ export function CampaignsPage() {
       setError(replyError.message)
     } finally {
       setCheckingSentEmailId('')
+    }
+  }
+
+  async function handleCheckCampaignNoReplies() {
+    if (!selectedCampaignId) return
+
+    setIsNoReplyChecking(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await checkNoReplyCampaign(
+        selectedCampaignId,
+        noReplyMonitoringStatus?.defaultTimeoutDays || 3,
+      )
+      setLastNoReplyCheckSummary(result)
+      setSuccess(
+        `No-reply check complete: ${result.checked} checked, ${result.noReplyDetected} no-reply, ${result.alreadyNoReply} already marked, ${result.skippedBecauseReplied} replied, ${result.skippedBecauseNotDue} not due.`,
+      )
+      await reloadNoReplies(selectedCampaignId)
+    } catch (noReplyError) {
+      setError(noReplyError.message)
+    } finally {
+      setIsNoReplyChecking(false)
+    }
+  }
+
+  async function handleCheckSentEmailNoReply(sentEmailId) {
+    if (!sentEmailId) return
+
+    setCheckingNoReplySentEmailId(sentEmailId)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await checkNoReplySentEmail(
+        sentEmailId,
+        noReplyMonitoringStatus?.defaultTimeoutDays || 3,
+      )
+      setSuccess(
+        result.noReplyDetected
+          ? 'No reply detected. Lead was marked for team review.'
+          : result.alreadyMarked
+            ? 'This sent email was already marked no-reply.'
+            : `No-reply check complete: ${formatNoReplyReason(result.reason)}.`,
+      )
+      await reloadNoReplies(selectedCampaignId)
+    } catch (noReplyError) {
+      setError(noReplyError.message)
+    } finally {
+      setCheckingNoReplySentEmailId('')
     }
   }
 
@@ -808,6 +897,7 @@ export function CampaignsPage() {
           isDetailLoading={isDetailLoading}
           isEmailSending={isEmailSending}
           isReplyChecking={isReplyChecking}
+          isNoReplyChecking={isNoReplyChecking}
           isReplyDraftSaving={isReplyDraftSaving}
           isGhlLoading={isGhlLoading}
           isGhlSyncing={isGhlSyncing}
@@ -820,13 +910,17 @@ export function CampaignsPage() {
           selectedLeadIds={selectedLeadIds}
           sentEmails={sentEmails}
           campaignReplies={campaignReplies}
+          campaignNoReplies={campaignNoReplies}
           replyDrafts={replyDrafts}
           replyDraftForm={replyDraftForm}
           teamDecisions={teamDecisions}
           checkingSentEmailId={checkingSentEmailId}
+          checkingNoReplySentEmailId={checkingNoReplySentEmailId}
           activeDecisionId={activeDecisionId}
           activeReplyDraftId={activeReplyDraftId}
           lastReplyCheckSummary={lastReplyCheckSummary}
+          lastNoReplyCheckSummary={lastNoReplyCheckSummary}
+          noReplyMonitoringStatus={noReplyMonitoringStatus}
           replyMonitoringStatus={replyMonitoringStatus}
           selectedReplyDraftId={selectedReplyDraftId}
           onAttach={handleAttachLeads}
@@ -844,6 +938,8 @@ export function CampaignsPage() {
           onSendDraft={handleSendDraft}
           onCheckCampaignReplies={handleCheckCampaignReplies}
           onCheckSentEmailReplies={handleCheckSentEmailReplies}
+          onCheckCampaignNoReplies={handleCheckCampaignNoReplies}
+          onCheckSentEmailNoReply={handleCheckSentEmailNoReply}
           onCompleteTeamDecision={handleCompleteTeamDecision}
           onCancelTeamDecision={handleCancelTeamDecision}
           onReplyDraftApprove={handleApproveReplyDraft}
@@ -1033,6 +1129,7 @@ function CampaignDetailCard({
   isDetailLoading,
   isEmailSending,
   isReplyChecking,
+  isNoReplyChecking,
   isReplyDraftSaving,
   isGhlLoading,
   isGhlSyncing,
@@ -1043,13 +1140,17 @@ function CampaignDetailCard({
   selectedDraftId,
   sentEmails,
   campaignReplies,
+  campaignNoReplies,
   replyDrafts,
   replyDraftForm,
   teamDecisions,
   checkingSentEmailId,
+  checkingNoReplySentEmailId,
   activeDecisionId,
   activeReplyDraftId,
   lastReplyCheckSummary,
+  lastNoReplyCheckSummary,
+  noReplyMonitoringStatus,
   replyMonitoringStatus,
   selectedReplyDraftId,
   onAttach,
@@ -1068,6 +1169,8 @@ function CampaignDetailCard({
   onSendDraft,
   onCheckCampaignReplies,
   onCheckSentEmailReplies,
+  onCheckCampaignNoReplies,
+  onCheckSentEmailNoReply,
   onCompleteTeamDecision,
   onCancelTeamDecision,
   onReplyDraftApprove,
@@ -1184,6 +1287,18 @@ function CampaignDetailCard({
           replyMonitoringStatus={replyMonitoringStatus}
           sentEmails={sentEmails}
           onCheckCampaign={onCheckCampaignReplies}
+        />
+
+        <NoReplyMonitoringPanel
+          campaignLeads={campaignLeads}
+          checkingSentEmailId={checkingNoReplySentEmailId}
+          isChecking={isNoReplyChecking}
+          lastSummary={lastNoReplyCheckSummary}
+          noReplies={campaignNoReplies}
+          sentEmails={sentEmails}
+          status={noReplyMonitoringStatus}
+          onCheckCampaign={onCheckCampaignNoReplies}
+          onCheckSentEmail={onCheckSentEmailNoReply}
         />
 
         <TeamDecisionsPanel
@@ -1993,6 +2108,209 @@ function RepliesTable({ replies }) {
   )
 }
 
+function NoReplyMonitoringPanel({
+  campaignLeads,
+  checkingSentEmailId,
+  isChecking,
+  lastSummary,
+  noReplies,
+  sentEmails,
+  status,
+  onCheckCampaign,
+  onCheckSentEmail,
+}) {
+  const summary = {
+    noReply: campaignLeads.filter((row) => row.outreachStatus === 'no_reply').length,
+    followupRequired: campaignLeads.filter((row) => row.outreachStatus === 'followup_required').length,
+    waitingReply: campaignLeads.filter((row) => row.outreachStatus === 'waiting_reply').length,
+    replied: campaignLeads.filter((row) => row.outreachStatus === 'replied').length,
+  }
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">No-Reply Monitoring</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            No-reply monitoring only marks leads for review. It does not send follow-ups
+            automatically.
+          </p>
+        </div>
+        <button
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          onClick={onCheckCampaign}
+          disabled={isChecking || !sentEmails.length}
+        >
+          {isChecking ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <RefreshCcw className="h-4 w-4" aria-hidden="true" />
+          )}
+          Check campaign for no replies
+        </button>
+      </div>
+
+      <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+        {status?.message ||
+          'No-reply monitoring only marks leads for review. It does not send follow-ups automatically.'}
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <InfoTile label="No reply" value={summary.noReply} />
+        <InfoTile label="Follow-up required" value={summary.followupRequired} />
+        <InfoTile label="Waiting reply" value={summary.waitingReply} />
+        <InfoTile label="Replied" value={summary.replied} />
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <InfoTile label="Default timeout" value={`${status?.defaultTimeoutDays || 3} days`} />
+        <InfoTile label="Send mode" value={status?.sendMode || 'mock'} />
+        <InfoTile label="No-reply sent emails" value={status?.noReplySentEmails ?? noReplies.length} />
+      </div>
+
+      {lastSummary ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <InfoTile label="Checked" value={lastSummary.checked} />
+          <InfoTile label="Detected" value={lastSummary.noReplyDetected} />
+          <InfoTile label="Already marked" value={lastSummary.alreadyNoReply} />
+          <InfoTile label="Replied skipped" value={lastSummary.skippedBecauseReplied} />
+          <InfoTile label="Not due" value={lastSummary.skippedBecauseNotDue} />
+        </div>
+      ) : null}
+
+      <NoReplySentEmailsTable
+        checkingSentEmailId={checkingSentEmailId}
+        sentEmails={sentEmails}
+        onCheckSentEmail={onCheckSentEmail}
+      />
+
+      <NoRepliesTable noReplies={noReplies} />
+    </div>
+  )
+}
+
+function NoReplySentEmailsTable({ checkingSentEmailId, sentEmails, onCheckSentEmail }) {
+  const eligibleEmails = sentEmails.filter((email) =>
+    ['sent', 'waiting_reply', 'replied', 'no_reply'].includes(email.status),
+  )
+
+  if (!eligibleEmails.length) {
+    return (
+      <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
+        No sent emails are available for no-reply checks.
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Lead</th>
+              <th className="px-4 py-3">Original subject</th>
+              <th className="px-4 py-3">Sent date</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {eligibleEmails.map((email) => (
+              <tr key={email.id} className="align-top">
+                <td className="min-w-52 px-4 py-3">
+                  <p className="font-medium text-slate-950">
+                    {email.lead?.name || email.toEmail || 'Unnamed lead'}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">{email.lead?.email || email.toEmail}</p>
+                </td>
+                <td className="min-w-56 px-4 py-3 text-slate-700">{email.subject || '-'}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  {formatDate(email.sentAt)}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <SyncBadge status={email.status} />
+                </td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <button
+                    className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    type="button"
+                    onClick={() => onCheckSentEmail(email.id)}
+                    disabled={checkingSentEmailId === email.id}
+                  >
+                    {checkingSentEmailId === email.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <RefreshCcw className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    Check no-reply
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function NoRepliesTable({ noReplies }) {
+  if (!noReplies.length) {
+    return (
+      <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
+        No no-reply leads have been marked for this campaign.
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Lead name</th>
+              <th className="px-4 py-3">Lead email</th>
+              <th className="px-4 py-3">Original subject</th>
+              <th className="px-4 py-3">Sent date</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">No-reply marked</th>
+              <th className="px-4 py-3">Outreach</th>
+              <th className="px-4 py-3">Decision</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {noReplies.map((row) => (
+              <tr key={row.id} className="align-top">
+                <td className="min-w-48 px-4 py-3 font-medium text-slate-950">
+                  {row.lead?.name || row.lead?.email || 'Unnamed lead'}
+                </td>
+                <td className="min-w-56 px-4 py-3 text-slate-700">{row.lead?.email || row.toEmail || '-'}</td>
+                <td className="min-w-56 px-4 py-3 text-slate-700">{row.subject || '-'}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">{formatDate(row.sentAt)}</td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <SyncBadge status={row.status} />
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  {formatDate(row.noReplyMarkedAt)}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  {row.campaignLead?.outreachStatus || '-'}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <DecisionStatusBadge status={row.decision?.status || 'pending'} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function AttachLeadsPanel({
   attachableLeads,
   isAttaching,
@@ -2592,6 +2910,12 @@ function EmptyState({ text }) {
 
 function formatDecisionType(value) {
   if (!value) return '-'
+
+  return String(value).replaceAll('_', ' ')
+}
+
+function formatNoReplyReason(value) {
+  if (!value) return 'checked'
 
   return String(value).replaceAll('_', ' ')
 }
