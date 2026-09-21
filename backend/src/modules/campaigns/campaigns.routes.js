@@ -12,6 +12,7 @@ import {
   listCampaignEmailDraftsController,
   listCampaignReplyDraftsController,
 } from '../emailDrafts/emailDrafts.controller.js'
+import { listCampaignFollowupDraftsController } from '../followupDrafts/followupDrafts.controller.js'
 import { listCampaignTeamDecisionsController } from '../teamDecisions/teamDecisions.controller.js'
 
 export const campaignsRouter = Router()
@@ -24,4 +25,5 @@ campaignsRouter.post('/:id/leads', addLeadsToCampaignController)
 campaignsRouter.get('/:id/leads', listCampaignLeadsController)
 campaignsRouter.get('/:campaignId/email-drafts', listCampaignEmailDraftsController)
 campaignsRouter.get('/:campaignId/reply-drafts', listCampaignReplyDraftsController)
+campaignsRouter.get('/:campaignId/followup-drafts', listCampaignFollowupDraftsController)
 campaignsRouter.get('/:campaignId/team-decisions', listCampaignTeamDecisionsController)

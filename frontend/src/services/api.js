@@ -472,6 +472,60 @@ export async function getSentEmailNoReplyStatus(sentEmailId) {
   return payload.data
 }
 
+export async function getFollowupDrafts() {
+  const response = await fetch(`${API_BASE_URL}/api/followup-drafts`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getFollowupDraftById(draftId) {
+  const response = await fetch(`${API_BASE_URL}/api/followup-drafts/${draftId}`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function createFollowupDraft(draft) {
+  const response = await fetch(`${API_BASE_URL}/api/followup-drafts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(draft),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function createFollowupDraftFromNoReply(sentEmailId, draft = {}) {
+  const response = await fetch(`${API_BASE_URL}/api/followup-drafts/create-from-no-reply/${sentEmailId}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(draft),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignFollowupDrafts(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/followup-drafts`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignFollowupCandidates(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/no-reply-monitoring/campaigns/${campaignId}/followup-candidates`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
 export async function getTeamDecisions() {
   const response = await fetch(`${API_BASE_URL}/api/team-decisions`)
 

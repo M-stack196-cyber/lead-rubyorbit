@@ -5,6 +5,7 @@ import { campaignsRouter } from '../modules/campaigns/campaigns.routes.js'
 import { emailAccountsRouter } from '../modules/emailAccounts/emailAccounts.routes.js'
 import { emailDraftsRouter } from '../modules/emailDrafts/emailDrafts.routes.js'
 import { emailSendingRouter } from '../modules/emailSending/emailSending.routes.js'
+import { followupDraftsRouter } from '../modules/followupDrafts/followupDrafts.routes.js'
 import { ghlRouter } from '../modules/ghl/ghl.routes.js'
 import { gmailRouter } from '../modules/gmail/gmail.routes.js'
 import { leadUploadsRouter } from '../modules/leadUploads/leadUploads.routes.js'
@@ -26,6 +27,7 @@ apiRoutes.use('/gmail', gmailRouter)
 apiRoutes.use('/email-drafts', emailDraftsRouter)
 apiRoutes.use('/email-accounts', emailAccountsRouter)
 apiRoutes.use('/email-sending', emailSendingRouter)
+apiRoutes.use('/followup-drafts', followupDraftsRouter)
 apiRoutes.use('/reply-monitoring', replyMonitoringRouter)
 apiRoutes.use('/no-reply-monitoring', noReplyMonitoringRouter)
 apiRoutes.use('/team-decisions', teamDecisionsRouter)
