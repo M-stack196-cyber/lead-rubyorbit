@@ -18,8 +18,8 @@ import {
 import { cn } from '@/lib/utils'
 
 const navigationItems = [
-  { label: 'Dashboard', icon: LayoutDashboard, active: true },
-  { label: 'Lead Uploads', icon: FileUp },
+  { label: 'Dashboard', icon: LayoutDashboard, page: 'dashboard' },
+  { label: 'Lead Uploads', icon: FileUp, page: 'lead-uploads' },
   { label: 'Leads', icon: Users },
   { label: 'Campaigns', icon: BrainCircuit },
   { label: 'Email Drafts', icon: Mail },
@@ -33,7 +33,7 @@ const navigationItems = [
   { label: 'Team Members', icon: UserRoundCog },
 ]
 
-export function AppLayout({ children }) {
+export function AppLayout({ children, currentPage = 'dashboard' }) {
   return (
     <div className="min-h-screen bg-slate-100 lg:flex">
       <aside className="bg-slate-950 text-slate-100 lg:fixed lg:inset-y-0 lg:left-0 lg:w-72">
@@ -51,11 +51,12 @@ export function AppLayout({ children }) {
           <nav className="grid gap-1 overflow-y-auto px-3 py-4 sm:grid-cols-2 lg:grid-cols-1">
             {navigationItems.map((item) => (
               <a
-                href="#"
+                href={item.page ? `#${item.page}` : '#'}
                 key={item.label}
                 className={cn(
                   'flex min-h-10 items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-900 hover:text-white',
-                  item.active && 'bg-slate-900 text-white shadow-sm',
+                  item.page === currentPage && 'bg-slate-900 text-white shadow-sm',
+                  !item.page && 'cursor-default opacity-60 hover:bg-transparent hover:text-slate-300',
                 )}
               >
                 <item.icon className="h-4 w-4 shrink-0" aria-hidden="true" />

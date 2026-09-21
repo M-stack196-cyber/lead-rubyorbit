@@ -1,0 +1,5 @@
+name,email,phone,company,website,linkedin,location,notes,source
+Ada Lovelace,ada@example.com,+1 555 0101,Analytical Engines,https://analytical.example,https://www.linkedin.com/in/ada,London,Interested in automation,csv_sample
+Grace Hopper,grace@example.com,+1 555 0102,Compiler Labs,https://compiler.example,,Arlington,Prefers concise emails,csv_sample
+Duplicate Ada,ada@example.com,+1 555 0103,Duplicate Co,,,London,Duplicate email,csv_sample
+,,,,,,,,
