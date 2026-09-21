@@ -21,7 +21,7 @@ const navigationItems = [
   { label: 'Dashboard', icon: LayoutDashboard, page: 'dashboard' },
   { label: 'Lead Uploads', icon: FileUp, page: 'lead-uploads' },
   { label: 'Leads', icon: Users },
-  { label: 'Campaigns', icon: BrainCircuit },
+  { label: 'Campaigns', icon: BrainCircuit, page: 'campaigns' },
   { label: 'Email Drafts', icon: Mail },
   { label: 'Manual Compose', icon: PenLine },
   { label: 'Replies', icon: MessageSquareReply },

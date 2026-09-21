@@ -44,3 +44,70 @@ export async function confirmLeadUpload(uploadId) {
   const payload = await parseApiResponse(response)
   return payload.data
 }
+
+export async function getCampaigns() {
+  const response = await fetch(`${API_BASE_URL}/api/campaigns`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function createCampaign(campaign) {
+  const response = await fetch(`${API_BASE_URL}/api/campaigns`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(campaign),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignById(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function updateCampaign(campaignId, campaign) {
+  const response = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(campaign),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function addLeadsToCampaign(campaignId, leadIds) {
+  const response = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/leads`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ leadIds }),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignLeads(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/leads`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getLeads() {
+  const response = await fetch(`${API_BASE_URL}/api/leads`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}

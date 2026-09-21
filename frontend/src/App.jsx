@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { AppLayout } from '@/components/layout/AppLayout'
+import { CampaignsPage } from '@/pages/CampaignsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { LeadUploadsPage } from '@/pages/LeadUploadsPage'
 
 const pages = {
+  campaigns: CampaignsPage,
   dashboard: DashboardPage,
   'lead-uploads': LeadUploadsPage,
 }

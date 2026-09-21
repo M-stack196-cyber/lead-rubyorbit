@@ -18,6 +18,8 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 
 - Phase 0 completed: project foundation, dashboard shell, Express API, health route, and environment examples.
 - Phase 1 completed: Supabase PostgreSQL schema migration, schema documentation, and backend database configuration placeholders.
+- Phase 2 completed: multi-format lead upload, validation, preview, and import flow.
+- Phase 3 completed: campaign management foundation with campaign CRUD, imported lead listing, and campaign lead attachment.
 
 ## Phase 0 Scope
 
@@ -40,7 +42,53 @@ Phase 1 adds the database foundation only:
 - Backend Supabase/PostgreSQL config placeholders
 - Environment variable examples for Supabase and PostgreSQL
 
-Business logic will be added in later phases. The current project intentionally does not include authentication, lead upload, GHL integration, AI, email sending, reply checking, follow-ups, notifications delivery, or workers.
+Later phases will add outreach execution workflows. The current project intentionally does not include authentication, GHL integration, AI, email sending, reply checking, follow-ups, notifications delivery, or workers.
+
+## Phase 2 Scope
+
+Phase 2 adds the lead upload module only:
+
+- Multi-format parser support for CSV, XLSX/XLS, JSON, TXT, DOC/DOCX, and PDF
+- Lead row normalization, validation, duplicate detection, and preview JSON storage
+- Supabase-backed upload metadata and confirmed lead import
+- Lead Uploads frontend page with upload, preview, summary, and confirm import controls
+
+## Phase 3 Scope
+
+Phase 3 adds the campaign management foundation only:
+
+- Campaign CRUD APIs backed by the existing `campaigns` table
+- Campaign lead attachment backed by the existing `campaign_leads` and `leads` tables
+- Duplicate campaign-lead prevention for the same campaign and lead
+- Simple imported leads API for attaching leads to campaigns
+- Campaigns frontend page with list, create form, detail section, status badges, lead counts, and lead attachment controls
+
+Phase 3 intentionally does not implement GHL, AI email generation, email sending, reply checking, follow-ups, authentication, or notification workflows.
+
+## API Endpoints
+
+### Health
+
+- `GET /api/health`
+
+### Lead Uploads
+
+- `POST /api/lead-uploads/upload`
+- `GET /api/lead-uploads/:id/preview`
+- `POST /api/lead-uploads/:id/confirm`
+
+### Campaigns
+
+- `GET /api/campaigns`
+- `POST /api/campaigns`
+- `GET /api/campaigns/:id`
+- `PATCH /api/campaigns/:id`
+- `POST /api/campaigns/:id/leads`
+- `GET /api/campaigns/:id/leads`
+
+### Leads
+
+- `GET /api/leads`
 
 ## Frontend
 
