@@ -381,3 +381,72 @@ export async function getSentEmailReplies(sentEmailId) {
   const payload = await parseApiResponse(response)
   return payload.data
 }
+
+export async function getTeamDecisions() {
+  const response = await fetch(`${API_BASE_URL}/api/team-decisions`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getTeamDecisionById(decisionId) {
+  const response = await fetch(`${API_BASE_URL}/api/team-decisions/${decisionId}`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function createTeamDecision(decision) {
+  const response = await fetch(`${API_BASE_URL}/api/team-decisions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(decision),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function updateTeamDecision(decisionId, decision) {
+  const response = await fetch(`${API_BASE_URL}/api/team-decisions/${decisionId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(decision),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function completeTeamDecision(decisionId, decision = {}) {
+  const response = await fetch(`${API_BASE_URL}/api/team-decisions/${decisionId}/complete`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(decision),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function cancelTeamDecision(decisionId) {
+  const response = await fetch(`${API_BASE_URL}/api/team-decisions/${decisionId}/cancel`, {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignTeamDecisions(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/team-decisions`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}

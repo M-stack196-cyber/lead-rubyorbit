@@ -11,6 +11,7 @@ Phase 1 adds the Supabase PostgreSQL schema foundation for LeadRubyOrbit. Later 
 - Phase 6 email account management fields on `email_accounts`
 - Phase 8 Gmail OAuth token metadata on `email_accounts`
 - Phase 11 Gmail reply monitoring fields on `replies`
+- Phase 12 team decision fields on `team_decisions`
 - Status check constraints for important workflow fields
 - Foreign key relationships between workflow entities
 - Useful lookup indexes
@@ -40,7 +41,7 @@ Stores campaign shells and optional future GHL workflow references. Campaign sta
 
 ### campaign_leads
 
-Joins campaigns to leads and tracks future sync/outreach state. Each lead can appear once per campaign. GHL sync statuses are `pending`, `synced`, and `failed`. Phase 4 stores `ghl_contact_id`, `ghl_sync_error`, `ghl_synced_at`, and `ghl_workflow_id` here because sync is campaign-specific. Outreach statuses cover the later workflow from pending sync through approval, sending, reply handling, follow-up, pause, and stop states.
+Joins campaigns to leads and tracks future sync/outreach state. Each lead can appear once per campaign. GHL sync statuses are `pending`, `synced`, and `failed`. Phase 4 stores `ghl_contact_id`, `ghl_sync_error`, `ghl_synced_at`, and `ghl_workflow_id` here because sync is campaign-specific. Outreach statuses cover the later workflow from pending sync through approval, sending, reply handling, follow-up, qualification, pause, and stop states.
 
 ### email_accounts
 
@@ -68,7 +69,7 @@ Stores campaign-level timing settings for future reply checking and waiting peri
 
 ### team_decisions
 
-Stores manual decision tasks for the team. Reasons are `lead_replied`, `no_reply_timeout`, and `manual_review`. Statuses are `pending`, `resolved`, and `cancelled`. Actions include stopping outreach, creating follow-ups, drafting replies, manual email, moving stage, and manual handling.
+Stores manual decision tasks for the team. Phase 12 links decisions to replies and sent emails, stores `decision_type`, assignment and creator fields, and uses statuses `pending`, `completed`, and `cancelled`. Decision types are `stop_outreach`, `manual_handling`, `create_reply_draft`, `mark_qualified`, and `continue_later`. Legacy `reason` and `action` fields remain for compatibility.
 
 ### notifications
 

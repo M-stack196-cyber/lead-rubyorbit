@@ -24,6 +24,8 @@ import {
   approveEmailDraft,
   checkCampaignReplies,
   checkSentEmailReplies,
+  cancelTeamDecision,
+  completeTeamDecision,
   createCampaign,
   createEmailDraft,
   getCampaignById,
@@ -32,6 +34,7 @@ import {
   getCampaignLeads,
   getCampaignReplies,
   getCampaignSentEmails,
+  getCampaignTeamDecisions,
   getCampaigns,
   getEmailAccounts,
   getEmailSendingStatus,
@@ -82,6 +85,7 @@ export function CampaignsPage() {
   const [sentEmails, setSentEmails] = useState([])
   const [replyMonitoringStatus, setReplyMonitoringStatus] = useState(null)
   const [campaignReplies, setCampaignReplies] = useState([])
+  const [teamDecisions, setTeamDecisions] = useState([])
   const [lastReplyCheckSummary, setLastReplyCheckSummary] = useState(null)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState('')
   const [selectedDraftId, setSelectedDraftId] = useState('')
@@ -99,6 +103,7 @@ export function CampaignsPage() {
   const [isEmailSending, setIsEmailSending] = useState(false)
   const [isReplyChecking, setIsReplyChecking] = useState(false)
   const [checkingSentEmailId, setCheckingSentEmailId] = useState('')
+  const [activeDecisionId, setActiveDecisionId] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [isAttaching, setIsAttaching] = useState(false)
   const [error, setError] = useState('')
@@ -147,6 +152,7 @@ export function CampaignsPage() {
         accounts,
         replyStatus,
         replies,
+        decisions,
       ] = await Promise.all([
           getCampaignById(campaignId),
           getCampaignLeads(campaignId),
@@ -158,6 +164,7 @@ export function CampaignsPage() {
           getEmailAccounts(),
           getReplyMonitoringStatus(),
           getCampaignReplies(campaignId),
+          getCampaignTeamDecisions(campaignId),
         ])
       setSelectedCampaign(campaign)
       setCampaignLeads(leads)
@@ -169,6 +176,7 @@ export function CampaignsPage() {
       setEmailAccounts(accounts)
       setReplyMonitoringStatus(replyStatus)
       setCampaignReplies(replies)
+      setTeamDecisions(decisions)
       setSelectedEmailAccountId((currentAccountId) => {
         const isCurrentAvailable = accounts.some(
           (account) =>
@@ -202,6 +210,7 @@ export function CampaignsPage() {
       setEmailDrafts([])
       setSentEmails([])
       setCampaignReplies([])
+      setTeamDecisions([])
     }
   }, [loadCampaignDetail, selectedCampaignId])
 
@@ -365,15 +374,24 @@ export function CampaignsPage() {
   async function reloadReplies(campaignId = selectedCampaignId) {
     if (!campaignId) return
 
-    const [sentEmailList, replies, replyStatus] = await Promise.all([
+    const [sentEmailList, replies, replyStatus, decisions] = await Promise.all([
       getCampaignSentEmails(campaignId),
       getCampaignReplies(campaignId),
       getReplyMonitoringStatus(),
+      getCampaignTeamDecisions(campaignId),
     ])
 
     setSentEmails(sentEmailList)
     setCampaignReplies(replies)
     setReplyMonitoringStatus(replyStatus)
+    setTeamDecisions(decisions)
+  }
+
+  async function reloadTeamDecisions(campaignId = selectedCampaignId) {
+    if (!campaignId) return
+
+    const decisions = await getCampaignTeamDecisions(campaignId)
+    setTeamDecisions(decisions)
   }
 
   async function handleSaveDraft(event) {
@@ -545,6 +563,51 @@ export function CampaignsPage() {
     }
   }
 
+  async function handleCompleteTeamDecision(decisionId, decisionType) {
+    if (!decisionId) return
+
+    setActiveDecisionId(decisionId)
+    setError('')
+    setSuccess('')
+
+    try {
+      await completeTeamDecision(decisionId, { decisionType })
+      setSuccess(
+        decisionType === 'create_reply_draft'
+          ? 'Team decision completed. A reply draft was created and no email was sent.'
+          : 'Team decision completed.',
+      )
+      await Promise.all([
+        reloadTeamDecisions(selectedCampaignId),
+        reloadEmailDrafts(selectedCampaignId),
+        reloadReplies(selectedCampaignId),
+        loadCampaignDetail(selectedCampaignId),
+      ])
+    } catch (decisionError) {
+      setError(decisionError.message)
+    } finally {
+      setActiveDecisionId('')
+    }
+  }
+
+  async function handleCancelTeamDecision(decisionId) {
+    if (!decisionId) return
+
+    setActiveDecisionId(decisionId)
+    setError('')
+    setSuccess('')
+
+    try {
+      await cancelTeamDecision(decisionId)
+      setSuccess('Team decision cancelled.')
+      await reloadTeamDecisions(selectedCampaignId)
+    } catch (decisionError) {
+      setError(decisionError.message)
+    } finally {
+      setActiveDecisionId('')
+    }
+  }
+
   return (
     <>
       <header className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
@@ -610,7 +673,9 @@ export function CampaignsPage() {
           selectedLeadIds={selectedLeadIds}
           sentEmails={sentEmails}
           campaignReplies={campaignReplies}
+          teamDecisions={teamDecisions}
           checkingSentEmailId={checkingSentEmailId}
+          activeDecisionId={activeDecisionId}
           lastReplyCheckSummary={lastReplyCheckSummary}
           replyMonitoringStatus={replyMonitoringStatus}
           onAttach={handleAttachLeads}
@@ -628,6 +693,8 @@ export function CampaignsPage() {
           onSendDraft={handleSendDraft}
           onCheckCampaignReplies={handleCheckCampaignReplies}
           onCheckSentEmailReplies={handleCheckSentEmailReplies}
+          onCompleteTeamDecision={handleCompleteTeamDecision}
+          onCancelTeamDecision={handleCancelTeamDecision}
           onLeadSelection={setSelectedLeadIds}
           onStatusUpdate={handleStatusUpdate}
         />
@@ -816,7 +883,9 @@ function CampaignDetailCard({
   selectedDraftId,
   sentEmails,
   campaignReplies,
+  teamDecisions,
   checkingSentEmailId,
+  activeDecisionId,
   lastReplyCheckSummary,
   replyMonitoringStatus,
   onAttach,
@@ -835,6 +904,8 @@ function CampaignDetailCard({
   onSendDraft,
   onCheckCampaignReplies,
   onCheckSentEmailReplies,
+  onCompleteTeamDecision,
+  onCancelTeamDecision,
   onStatusUpdate,
 }) {
   if (isDetailLoading) {
@@ -941,6 +1012,13 @@ function CampaignDetailCard({
           replyMonitoringStatus={replyMonitoringStatus}
           sentEmails={sentEmails}
           onCheckCampaign={onCheckCampaignReplies}
+        />
+
+        <TeamDecisionsPanel
+          activeDecisionId={activeDecisionId}
+          decisions={teamDecisions}
+          onCancel={onCancelTeamDecision}
+          onComplete={onCompleteTeamDecision}
         />
 
         <CampaignLeadsTable campaignLeads={campaignLeads} />
@@ -1796,6 +1874,144 @@ function AttachLeadsPanel({
   )
 }
 
+const decisionActions = [
+  ['stop_outreach', 'Stop outreach'],
+  ['manual_handling', 'Manual handling'],
+  ['create_reply_draft', 'Create reply draft'],
+  ['mark_qualified', 'Mark qualified'],
+  ['continue_later', 'Continue later'],
+]
+
+function TeamDecisionsPanel({ activeDecisionId, decisions, onCancel, onComplete }) {
+  const summary = {
+    pending: decisions.filter((decision) => decision.status === 'pending').length,
+    completed: decisions.filter((decision) => decision.status === 'completed').length,
+    cancelled: decisions.filter((decision) => decision.status === 'cancelled').length,
+  }
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Team Decisions</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Team decisions control what happens after a reply. No automatic email is sent.
+          </p>
+        </div>
+        <MessageSquareReply className="h-5 w-5 text-primary" aria-hidden="true" />
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <InfoTile label="Pending decisions" value={summary.pending} />
+        <InfoTile label="Completed decisions" value={summary.completed} />
+        <InfoTile label="Cancelled decisions" value={summary.cancelled} />
+      </div>
+
+      <TeamDecisionsTable
+        activeDecisionId={activeDecisionId}
+        decisions={decisions}
+        onCancel={onCancel}
+        onComplete={onComplete}
+      />
+    </div>
+  )
+}
+
+function TeamDecisionsTable({ activeDecisionId, decisions, onCancel, onComplete }) {
+  if (!decisions.length) {
+    return (
+      <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
+        No team decisions have been created for this campaign.
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Lead name</th>
+              <th className="px-4 py-3">Lead email</th>
+              <th className="px-4 py-3">Reply subject</th>
+              <th className="px-4 py-3">Decision type</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Notes</th>
+              <th className="px-4 py-3">Outreach</th>
+              <th className="px-4 py-3">Created</th>
+              <th className="px-4 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {decisions.map((decision) => {
+              const isPending = decision.status === 'pending'
+              const isWorking = activeDecisionId === decision.id
+
+              return (
+                <tr key={decision.id} className="align-top">
+                  <td className="min-w-48 px-4 py-3 font-medium text-slate-950">
+                    {decision.lead?.name || decision.lead?.email || 'Unnamed lead'}
+                  </td>
+                  <td className="min-w-56 px-4 py-3 text-slate-700">
+                    {decision.lead?.email || '-'}
+                  </td>
+                  <td className="min-w-56 px-4 py-3 text-slate-700">
+                    {decision.reply?.subject || decision.sentEmail?.subject || '-'}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                    {formatDecisionType(decision.decisionType)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <DecisionStatusBadge status={decision.status} />
+                  </td>
+                  <td className="min-w-52 px-4 py-3 text-slate-700">{decision.notes || '-'}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                    {decision.campaignLead?.outreachStatus || '-'}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                    {formatDate(decision.createdAt)}
+                  </td>
+                  <td className="min-w-80 px-4 py-3">
+                    {isPending ? (
+                      <div className="flex flex-wrap gap-2">
+                        {decisionActions.map(([decisionType, label]) => (
+                          <button
+                            className="inline-flex min-h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            key={decisionType}
+                            type="button"
+                            onClick={() => onComplete(decision.id, decisionType)}
+                            disabled={isWorking}
+                          >
+                            {isWorking ? (
+                              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                            ) : null}
+                            {label}
+                          </button>
+                        ))}
+                        <button
+                          className="inline-flex min-h-9 items-center justify-center rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          type="button"
+                          onClick={() => onCancel(decision.id)}
+                          disabled={isWorking}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-500">No pending action</span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function CampaignLeadsTable({ campaignLeads }) {
   if (!campaignLeads.length) {
     return <EmptyState text="No leads are attached to this campaign yet." />
@@ -1868,6 +2084,16 @@ function DraftStatusBadge({ status }) {
   return <Badge variant={variants[status] || 'secondary'}>{status || 'draft'}</Badge>
 }
 
+function DecisionStatusBadge({ status }) {
+  const variants = {
+    cancelled: 'destructive',
+    completed: 'success',
+    pending: 'warning',
+  }
+
+  return <Badge variant={variants[status] || 'secondary'}>{status || 'pending'}</Badge>
+}
+
 function InfoTile({ label, value }) {
   return (
     <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
@@ -1883,6 +2109,12 @@ function EmptyState({ text }) {
       {text}
     </div>
   )
+}
+
+function formatDecisionType(value) {
+  if (!value) return '-'
+
+  return String(value).replaceAll('_', ' ')
 }
 
 function formatDate(value) {

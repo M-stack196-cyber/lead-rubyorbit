@@ -10,6 +10,8 @@ import { gmailRouter } from '../modules/gmail/gmail.routes.js'
 import { leadUploadsRouter } from '../modules/leadUploads/leadUploads.routes.js'
 import { leadsRouter } from '../modules/leads/leads.routes.js'
 import { replyMonitoringRouter } from '../modules/replyMonitoring/replyMonitoring.routes.js'
+import { teamDecisionsRouter } from '../modules/teamDecisions/teamDecisions.routes.js'
+import { listReplyTeamDecisionsController } from '../modules/teamDecisions/teamDecisions.controller.js'
 
 export const apiRoutes = Router()
 
@@ -23,3 +25,5 @@ apiRoutes.use('/email-drafts', emailDraftsRouter)
 apiRoutes.use('/email-accounts', emailAccountsRouter)
 apiRoutes.use('/email-sending', emailSendingRouter)
 apiRoutes.use('/reply-monitoring', replyMonitoringRouter)
+apiRoutes.use('/team-decisions', teamDecisionsRouter)
+apiRoutes.get('/replies/:replyId/team-decisions', listReplyTeamDecisionsController)

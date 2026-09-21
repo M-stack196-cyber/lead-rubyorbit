@@ -1,5 +1,6 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
 import { getGoogleOAuthScopes } from '../gmail/gmail.oauthClient.js'
+import { createPendingDecisionForReply } from '../teamDecisions/teamDecisions.service.js'
 import { isReplyFromOtherSender, readGmailThread } from './replyMonitoring.gmailReader.js'
 
 const sentEmailSelect = `
@@ -269,10 +270,17 @@ export async function checkSentEmailReplies(sentEmailId) {
       raw_payload: message.rawPayload,
     }))
 
-    const { error: insertError } = await supabase.from('replies').insert(rows)
+    const { data: insertedReplies, error: insertError } = await supabase
+      .from('replies')
+      .insert(rows)
+      .select('id')
 
     if (insertError && insertError.code !== '23505') {
       throw createHttpError(insertError.message, 500)
+    }
+
+    for (const reply of insertedReplies || []) {
+      await createPendingDecisionForReply(reply.id)
     }
   }
 
