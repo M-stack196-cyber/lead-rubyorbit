@@ -8,6 +8,7 @@ Phase 1 adds the Supabase PostgreSQL schema foundation for LeadRubyOrbit. Later 
 - Core tables for teams, uploads, leads, campaigns, drafts, sent emails, replies, follow-ups, workflow settings, decisions, notifications, and audit logs
 - Phase 4 GHL sync fields on `campaign_leads`
 - Phase 5 rejected-draft reason support on `email_drafts`
+- Phase 6 email account management fields on `email_accounts`
 - Status check constraints for important workflow fields
 - Foreign key relationships between workflow entities
 - Useful lookup indexes
@@ -41,7 +42,7 @@ Joins campaigns to leads and tracks future sync/outreach state. Each lead can ap
 
 ### email_accounts
 
-Stores email account configuration placeholders. Account statuses are `enabled`, `disabled`, and `deleted`. Sensitive provider credentials should not be committed to source control.
+Stores email account configuration placeholders. Phase 6 account providers are `smtp`, `gmail`, `outlook`, and `custom`. Account statuses are `draft`, `active`, `disabled`, `archived`, and `error`. SMTP connection fields and daily limits are stored for later phases. Sensitive provider credentials are not exposed through the API; Phase 6 stores only an `encrypted_secret_placeholder` marker for future encryption work and does not send emails.
 
 ### email_drafts
 

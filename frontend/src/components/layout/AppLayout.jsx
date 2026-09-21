@@ -27,7 +27,7 @@ const navigationItems = [
   { label: 'Replies', icon: MessageSquareReply },
   { label: 'Follow-ups', icon: RefreshCcw },
   { label: 'Team Decisions', icon: CheckSquare },
-  { label: 'Email Accounts', icon: MailCheck },
+  { label: 'Email Accounts', icon: MailCheck, page: 'email-accounts' },
   { label: 'Workflow Settings', icon: Settings2 },
   { label: 'Notifications', icon: Bell },
   { label: 'Team Members', icon: UserRoundCog },

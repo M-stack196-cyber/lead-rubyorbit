@@ -22,6 +22,7 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 - Phase 3 completed: campaign management foundation with campaign CRUD, imported lead listing, and campaign lead attachment.
 - Phase 4 completed: GoHighLevel integration foundation with mock-mode campaign lead sync.
 - Phase 5 completed: email draft creation foundation with manual drafting, editing, approval, and rejection.
+- Phase 6 completed: email account management foundation for future sending phases.
 
 ## Phase 0 Scope
 
@@ -104,6 +105,17 @@ Phase 5 adds the email draft creation foundation only:
 
 Draft statuses are `draft`, `saved`, `approved`, and `rejected`. Phase 5 does not send emails. AI draft generation is not implemented yet.
 
+## Phase 6 Scope
+
+Phase 6 adds email account management only:
+
+- Email account list, create, view, update, enable, disable, and archive APIs
+- Email Accounts frontend page with summary cards, table actions, and create/edit form
+- Provider values: `smtp`, `gmail`, `outlook`, `custom`
+- Status values: `draft`, `active`, `disabled`, `archived`, `error`
+
+Secrets are not exposed in API responses. Any accepted secret/password value is stored only as a placeholder for future encryption work. Phase 6 does not send emails.
+
 ## API Endpoints
 
 ### Health
@@ -146,6 +158,16 @@ Draft statuses are `draft`, `saved`, `approved`, and `rejected`. Phase 5 does no
 - `POST /api/email-drafts/:id/approve`
 - `POST /api/email-drafts/:id/reject`
 
+### Email Accounts
+
+- `GET /api/email-accounts`
+- `POST /api/email-accounts`
+- `GET /api/email-accounts/:id`
+- `PATCH /api/email-accounts/:id`
+- `POST /api/email-accounts/:id/enable`
+- `POST /api/email-accounts/:id/disable`
+- `POST /api/email-accounts/:id/archive`
+
 ## Frontend
 
 ```bash
@@ -174,6 +196,7 @@ The database migrations are located at:
 backend/db/migrations/001_initial_schema.sql
 backend/db/migrations/002_ghl_sync_fields.sql
 backend/db/migrations/003_email_draft_fields.sql
+backend/db/migrations/004_email_account_fields.sql
 ```
 
 Apply these SQL migrations in a Supabase PostgreSQL project when you are ready to create or update the schema. Do not commit real `.env` files or secrets.

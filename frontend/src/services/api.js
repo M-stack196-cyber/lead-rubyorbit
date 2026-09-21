@@ -212,3 +212,70 @@ export async function getCampaignEmailDrafts(campaignId) {
   const payload = await parseApiResponse(response)
   return payload.data
 }
+
+export async function getEmailAccounts() {
+  const response = await fetch(`${API_BASE_URL}/api/email-accounts`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function createEmailAccount(account) {
+  const response = await fetch(`${API_BASE_URL}/api/email-accounts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(account),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getEmailAccountById(accountId) {
+  const response = await fetch(`${API_BASE_URL}/api/email-accounts/${accountId}`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function updateEmailAccount(accountId, account) {
+  const response = await fetch(`${API_BASE_URL}/api/email-accounts/${accountId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(account),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function enableEmailAccount(accountId) {
+  const response = await fetch(`${API_BASE_URL}/api/email-accounts/${accountId}/enable`, {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function disableEmailAccount(accountId) {
+  const response = await fetch(`${API_BASE_URL}/api/email-accounts/${accountId}/disable`, {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function archiveEmailAccount(accountId) {
+  const response = await fetch(`${API_BASE_URL}/api/email-accounts/${accountId}/archive`, {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
