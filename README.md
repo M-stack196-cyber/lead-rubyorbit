@@ -21,6 +21,7 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 - Phase 2 completed: multi-format lead upload, validation, preview, and import flow.
 - Phase 3 completed: campaign management foundation with campaign CRUD, imported lead listing, and campaign lead attachment.
 - Phase 4 completed: GoHighLevel integration foundation with mock-mode campaign lead sync.
+- Phase 5 completed: email draft creation foundation with manual drafting, editing, approval, and rejection.
 
 ## Phase 0 Scope
 
@@ -92,6 +93,17 @@ GHL_API_BASE_URL=https://services.leadconnectorhq.com
 
 Phase 4 intentionally does not implement AI email generation, email sending, reply checking, follow-ups, authentication, or notification workflows.
 
+## Phase 5 Scope
+
+Phase 5 adds the email draft creation foundation only:
+
+- Manual email draft APIs backed by the existing `email_drafts` table
+- Draft creation, editing, approval, and rejection
+- Campaign email draft listing with lead and campaign-lead context
+- Campaign detail UI section for draft status summaries, draft table, create/edit form, and approval controls
+
+Draft statuses are `draft`, `saved`, `approved`, and `rejected`. Phase 5 does not send emails. AI draft generation is not implemented yet.
+
 ## API Endpoints
 
 ### Health
@@ -112,6 +124,7 @@ Phase 4 intentionally does not implement AI email generation, email sending, rep
 - `PATCH /api/campaigns/:id`
 - `POST /api/campaigns/:id/leads`
 - `GET /api/campaigns/:id/leads`
+- `GET /api/campaigns/:campaignId/email-drafts`
 
 ### Leads
 
@@ -123,6 +136,15 @@ Phase 4 intentionally does not implement AI email generation, email sending, rep
 - `POST /api/ghl/campaigns/:campaignId/sync`
 - `POST /api/ghl/campaigns/:campaignId/retry-failed`
 - `GET /api/ghl/campaigns/:campaignId/sync-status`
+
+### Email Drafts
+
+- `GET /api/email-drafts`
+- `POST /api/email-drafts`
+- `GET /api/email-drafts/:id`
+- `PATCH /api/email-drafts/:id`
+- `POST /api/email-drafts/:id/approve`
+- `POST /api/email-drafts/:id/reject`
 
 ## Frontend
 
@@ -151,6 +173,7 @@ The database migrations are located at:
 ```bash
 backend/db/migrations/001_initial_schema.sql
 backend/db/migrations/002_ghl_sync_fields.sql
+backend/db/migrations/003_email_draft_fields.sql
 ```
 
 Apply these SQL migrations in a Supabase PostgreSQL project when you are ready to create or update the schema. Do not commit real `.env` files or secrets.

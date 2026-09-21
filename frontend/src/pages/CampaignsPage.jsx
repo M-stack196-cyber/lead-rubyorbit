@@ -3,28 +3,36 @@ import {
   AlertCircle,
   CheckCircle2,
   CirclePlus,
+  Edit3,
+  FileText,
   Loader2,
   Megaphone,
   RefreshCcw,
   RotateCcw,
   SendToBack,
   UserPlus,
+  XCircle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import {
   addLeadsToCampaign,
+  approveEmailDraft,
   createCampaign,
+  createEmailDraft,
   getCampaignById,
+  getCampaignEmailDrafts,
   getCampaignGhlSyncStatus,
   getCampaignLeads,
   getCampaigns,
   getGhlSettingsStatus,
   getLeads,
+  rejectEmailDraft,
   retryFailedGhlSync,
   syncCampaignToGhl,
   updateCampaign,
+  updateEmailDraft,
 } from '@/services/api'
 
 const campaignStatuses = ['draft', 'active', 'paused', 'completed', 'archived']
@@ -43,11 +51,22 @@ const defaultForm = {
   status: 'draft',
 }
 
+const defaultDraftForm = {
+  campaignLeadId: '',
+  draftType: 'primary',
+  subject: '',
+  body: '',
+  rejectedReason: '',
+}
+
 export function CampaignsPage() {
   const [campaigns, setCampaigns] = useState([])
   const [selectedCampaignId, setSelectedCampaignId] = useState('')
   const [selectedCampaign, setSelectedCampaign] = useState(null)
   const [campaignLeads, setCampaignLeads] = useState([])
+  const [emailDrafts, setEmailDrafts] = useState([])
+  const [selectedDraftId, setSelectedDraftId] = useState('')
+  const [draftForm, setDraftForm] = useState(defaultDraftForm)
   const [ghlSettings, setGhlSettings] = useState(null)
   const [ghlSyncStatus, setGhlSyncStatus] = useState(null)
   const [availableLeads, setAvailableLeads] = useState([])
@@ -57,6 +76,7 @@ export function CampaignsPage() {
   const [isDetailLoading, setIsDetailLoading] = useState(false)
   const [isGhlLoading, setIsGhlLoading] = useState(false)
   const [isGhlSyncing, setIsGhlSyncing] = useState(false)
+  const [isDraftSaving, setIsDraftSaving] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isAttaching, setIsAttaching] = useState(false)
   const [error, setError] = useState('')
@@ -94,16 +114,18 @@ export function CampaignsPage() {
     setError('')
 
     try {
-      const [campaign, leads, settings, syncStatus] = await Promise.all([
+      const [campaign, leads, settings, syncStatus, drafts] = await Promise.all([
         getCampaignById(campaignId),
         getCampaignLeads(campaignId),
         getGhlSettingsStatus(),
         getCampaignGhlSyncStatus(campaignId),
+        getCampaignEmailDrafts(campaignId),
       ])
       setSelectedCampaign(campaign)
       setCampaignLeads(leads)
       setGhlSettings(settings)
       setGhlSyncStatus(syncStatus)
+      setEmailDrafts(drafts)
       setSelectedLeadIds([])
     } catch (loadError) {
       setError(loadError.message)
@@ -245,12 +267,113 @@ export function CampaignsPage() {
     }
   }
 
+  function handleSelectDraft(draft) {
+    setSelectedDraftId(draft.id)
+    setDraftForm({
+      campaignLeadId: draft.campaignLeadId || '',
+      draftType: draft.draftType || 'primary',
+      subject: draft.subject || '',
+      body: draft.body || '',
+      rejectedReason: draft.rejectedReason || '',
+    })
+  }
+
+  function resetDraftForm() {
+    setSelectedDraftId('')
+    setDraftForm(defaultDraftForm)
+  }
+
+  async function reloadEmailDrafts(campaignId = selectedCampaignId) {
+    if (!campaignId) return
+
+    const drafts = await getCampaignEmailDrafts(campaignId)
+    setEmailDrafts(drafts)
+  }
+
+  async function handleSaveDraft(event) {
+    event.preventDefault()
+    if (!selectedCampaignId) return
+
+    const selectedCampaignLead = campaignLeads.find((row) => row.id === draftForm.campaignLeadId)
+
+    setIsDraftSaving(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      if (selectedDraftId) {
+        await updateEmailDraft(selectedDraftId, {
+          draftType: draftForm.draftType,
+          subject: draftForm.subject,
+          body: draftForm.body,
+          status: 'saved',
+        })
+        setSuccess('Email draft updated. Emails are not sent in this phase.')
+      } else {
+        await createEmailDraft({
+          campaignId: selectedCampaignId,
+          leadId: selectedCampaignLead?.leadId,
+          campaignLeadId: selectedCampaignLead?.id,
+          draftType: draftForm.draftType,
+          subject: draftForm.subject,
+          body: draftForm.body,
+        })
+        setSuccess('Email draft saved. Emails are not sent in this phase.')
+      }
+
+      resetDraftForm()
+      await reloadEmailDrafts(selectedCampaignId)
+    } catch (draftError) {
+      setError(draftError.message)
+    } finally {
+      setIsDraftSaving(false)
+    }
+  }
+
+  async function handleApproveDraft(draftId = selectedDraftId) {
+    if (!draftId) return
+
+    setIsDraftSaving(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      await approveEmailDraft(draftId)
+      setSuccess('Email draft approved. No email was sent.')
+      resetDraftForm()
+      await reloadEmailDrafts(selectedCampaignId)
+    } catch (draftError) {
+      setError(draftError.message)
+    } finally {
+      setIsDraftSaving(false)
+    }
+  }
+
+  async function handleRejectDraft(draftId = selectedDraftId, reason = draftForm.rejectedReason) {
+    if (!draftId) return
+
+    setIsDraftSaving(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      await rejectEmailDraft(draftId, reason)
+      setSuccess('Email draft rejected. No email was sent.')
+      resetDraftForm()
+      await reloadEmailDrafts(selectedCampaignId)
+    } catch (draftError) {
+      setError(draftError.message)
+    } finally {
+      setIsDraftSaving(false)
+    }
+  }
+
   return (
     <>
       <header className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <Badge variant="outline" className="mb-3 bg-white">
-            Phase 3 Campaign Foundation
+            Campaign Operations
           </Badge>
           <h1 className="text-3xl font-semibold tracking-normal text-slate-950">Campaigns</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
@@ -291,18 +414,28 @@ export function CampaignsPage() {
           attachableLeads={attachableLeads}
           campaign={selectedCampaign}
           campaignLeads={campaignLeads}
+          draftForm={draftForm}
+          emailDrafts={emailDrafts}
           isAttaching={isAttaching}
           isDetailLoading={isDetailLoading}
           isGhlLoading={isGhlLoading}
           isGhlSyncing={isGhlSyncing}
+          isDraftSaving={isDraftSaving}
           isSaving={isSaving}
           ghlSettings={ghlSettings}
           ghlSyncStatus={ghlSyncStatus}
+          selectedDraftId={selectedDraftId}
           selectedLeadIds={selectedLeadIds}
           onAttach={handleAttachLeads}
           onGhlRefresh={() => reloadGhlStatus()}
           onGhlRetryFailed={handleRetryFailedGhlSync}
           onGhlSync={handleSyncToGhl}
+          onDraftApprove={handleApproveDraft}
+          onDraftChange={setDraftForm}
+          onDraftReject={handleRejectDraft}
+          onDraftReset={resetDraftForm}
+          onDraftSave={handleSaveDraft}
+          onDraftSelect={handleSelectDraft}
           onLeadSelection={setSelectedLeadIds}
           onStatusUpdate={handleStatusUpdate}
         />
@@ -472,18 +605,28 @@ function CampaignDetailCard({
   attachableLeads,
   campaign,
   campaignLeads,
+  draftForm,
+  emailDrafts,
   ghlSettings,
   ghlSyncStatus,
   isAttaching,
   isDetailLoading,
   isGhlLoading,
   isGhlSyncing,
+  isDraftSaving,
   isSaving,
   selectedLeadIds,
+  selectedDraftId,
   onAttach,
   onGhlRefresh,
   onGhlRetryFailed,
   onGhlSync,
+  onDraftApprove,
+  onDraftChange,
+  onDraftReject,
+  onDraftReset,
+  onDraftSave,
+  onDraftSelect,
   onLeadSelection,
   onStatusUpdate,
 }) {
@@ -554,6 +697,20 @@ function CampaignDetailCard({
           onRefresh={onGhlRefresh}
           onRetryFailed={onGhlRetryFailed}
           onSync={onGhlSync}
+        />
+
+        <EmailDraftsPanel
+          campaignLeads={campaignLeads}
+          draftForm={draftForm}
+          emailDrafts={emailDrafts}
+          isDraftSaving={isDraftSaving}
+          selectedDraftId={selectedDraftId}
+          onApprove={onDraftApprove}
+          onChange={onDraftChange}
+          onReject={onDraftReject}
+          onReset={onDraftReset}
+          onSave={onDraftSave}
+          onSelect={onDraftSelect}
         />
 
         <CampaignLeadsTable campaignLeads={campaignLeads} />
@@ -700,6 +857,261 @@ function GhlSyncStatusTable({ rows }) {
   )
 }
 
+function EmailDraftsPanel({
+  campaignLeads,
+  draftForm,
+  emailDrafts,
+  isDraftSaving,
+  selectedDraftId,
+  onApprove,
+  onChange,
+  onReject,
+  onReset,
+  onSave,
+  onSelect,
+}) {
+  const summary = {
+    total: emailDrafts.length,
+    saved: emailDrafts.filter((draft) => draft.status === 'saved').length,
+    approved: emailDrafts.filter((draft) => draft.status === 'approved').length,
+    rejected: emailDrafts.filter((draft) => draft.status === 'rejected').length,
+  }
+  const selectedDraft = emailDrafts.find((draft) => draft.id === selectedDraftId)
+  const isApproved = selectedDraft?.status === 'approved'
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Email Drafts</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Draft approval only. Emails are not sent in this phase.
+          </p>
+        </div>
+        <FileText className="h-5 w-5 text-primary" aria-hidden="true" />
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <InfoTile label="Total" value={summary.total} />
+        <InfoTile label="Saved" value={summary.saved} />
+        <InfoTile label="Approved" value={summary.approved} />
+        <InfoTile label="Rejected" value={summary.rejected} />
+      </div>
+
+      <form className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4" onSubmit={onSave}>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div>
+            <label className="text-sm font-medium text-slate-700" htmlFor="draft-lead">
+              Campaign lead
+            </label>
+            <select
+              className="mt-1 min-h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-slate-100"
+              id="draft-lead"
+              value={draftForm.campaignLeadId}
+              onChange={(event) => onChange({ ...draftForm, campaignLeadId: event.target.value })}
+              disabled={Boolean(selectedDraftId)}
+            >
+              <option value="">Select a campaign lead</option>
+              {campaignLeads.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.lead?.name || row.lead?.email || 'Unnamed lead'} -{' '}
+                  {row.lead?.company || 'No company'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-slate-700" htmlFor="draft-type">
+              Draft type
+            </label>
+            <select
+              className="mt-1 min-h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-slate-100"
+              id="draft-type"
+              value={draftForm.draftType}
+              onChange={(event) => onChange({ ...draftForm, draftType: event.target.value })}
+              disabled={isApproved}
+            >
+              <option value="primary">primary</option>
+              <option value="manual">manual</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <label className="text-sm font-medium text-slate-700" htmlFor="draft-subject">
+            Subject
+          </label>
+          <input
+            className="mt-1 min-h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-slate-100"
+            id="draft-subject"
+            value={draftForm.subject}
+            onChange={(event) => onChange({ ...draftForm, subject: event.target.value })}
+            placeholder="Quick intro"
+            disabled={isApproved}
+          />
+        </div>
+
+        <div className="mt-4">
+          <label className="text-sm font-medium text-slate-700" htmlFor="draft-body">
+            Body
+          </label>
+          <textarea
+            className="mt-1 min-h-40 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-slate-100"
+            id="draft-body"
+            value={draftForm.body}
+            onChange={(event) => onChange({ ...draftForm, body: event.target.value })}
+            placeholder="Write the draft copy for team review."
+            disabled={isApproved}
+          />
+        </div>
+
+        <div className="mt-4">
+          <label className="text-sm font-medium text-slate-700" htmlFor="draft-reject-reason">
+            Rejection reason
+          </label>
+          <input
+            className="mt-1 min-h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+            id="draft-reject-reason"
+            value={draftForm.rejectedReason}
+            onChange={(event) => onChange({ ...draftForm, rejectedReason: event.target.value })}
+            placeholder="Optional reason when rejecting"
+          />
+        </div>
+
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
+            type="submit"
+            disabled={isDraftSaving || isApproved}
+          >
+            {isDraftSaving ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <FileText className="h-4 w-4" aria-hidden="true" />
+            )}
+            {selectedDraftId ? 'Save Changes' : 'Save Draft'}
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={() => onApprove(selectedDraftId)}
+            disabled={!selectedDraftId || isDraftSaving || isApproved}
+          >
+            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+            Approve
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={() => onReject(selectedDraftId, draftForm.rejectedReason)}
+            disabled={!selectedDraftId || isDraftSaving}
+          >
+            <XCircle className="h-4 w-4" aria-hidden="true" />
+            Reject
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            type="button"
+            onClick={onReset}
+          >
+            Clear
+          </button>
+        </div>
+      </form>
+
+      <EmailDraftsTable
+        emailDrafts={emailDrafts}
+        onApprove={onApprove}
+        onReject={onReject}
+        onSelect={onSelect}
+      />
+    </div>
+  )
+}
+
+function EmailDraftsTable({ emailDrafts, onApprove, onReject, onSelect }) {
+  if (!emailDrafts.length) {
+    return (
+      <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
+        No email drafts yet.
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Lead</th>
+              <th className="px-4 py-3">Company</th>
+              <th className="px-4 py-3">Type</th>
+              <th className="px-4 py-3">Subject</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Updated</th>
+              <th className="px-4 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {emailDrafts.map((draft) => (
+              <tr key={draft.id} className="align-top">
+                <td className="min-w-52 px-4 py-3">
+                  <p className="font-medium text-slate-950">
+                    {draft.lead?.name || draft.lead?.email || 'Unnamed lead'}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">{draft.lead?.email || 'No email'}</p>
+                </td>
+                <td className="min-w-36 px-4 py-3 text-slate-700">
+                  {draft.lead?.company || '-'}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  {draft.draftType}
+                </td>
+                <td className="min-w-56 px-4 py-3 text-slate-700">{draft.subject}</td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <DraftStatusBadge status={draft.status} />
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  {formatDate(draft.updatedAt)}
+                </td>
+                <td className="min-w-52 px-4 py-3">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                      type="button"
+                      onClick={() => onSelect(draft)}
+                    >
+                      <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
+                      Edit
+                    </button>
+                    <button
+                      className="inline-flex min-h-9 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      type="button"
+                      onClick={() => onApprove(draft.id)}
+                      disabled={draft.status === 'approved'}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      className="inline-flex min-h-9 items-center justify-center rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-100"
+                      type="button"
+                      onClick={() => onReject(draft.id, draft.rejectedReason || '')}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function AttachLeadsPanel({
   attachableLeads,
   isAttaching,
@@ -831,6 +1243,17 @@ function SyncBadge({ status }) {
   }
 
   return <Badge variant={variants[status] || 'secondary'}>{status || 'pending'}</Badge>
+}
+
+function DraftStatusBadge({ status }) {
+  const variants = {
+    approved: 'success',
+    draft: 'warning',
+    rejected: 'destructive',
+    saved: 'secondary',
+  }
+
+  return <Badge variant={variants[status] || 'secondary'}>{status || 'draft'}</Badge>
 }
 
 function InfoTile({ label, value }) {

@@ -143,3 +143,72 @@ export async function getCampaignGhlSyncStatus(campaignId) {
   const payload = await parseApiResponse(response)
   return payload.data
 }
+
+export async function getEmailDrafts() {
+  const response = await fetch(`${API_BASE_URL}/api/email-drafts`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function createEmailDraft(draft) {
+  const response = await fetch(`${API_BASE_URL}/api/email-drafts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(draft),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getEmailDraftById(draftId) {
+  const response = await fetch(`${API_BASE_URL}/api/email-drafts/${draftId}`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function updateEmailDraft(draftId, draft) {
+  const response = await fetch(`${API_BASE_URL}/api/email-drafts/${draftId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(draft),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function approveEmailDraft(draftId) {
+  const response = await fetch(`${API_BASE_URL}/api/email-drafts/${draftId}/approve`, {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function rejectEmailDraft(draftId, rejectedReason) {
+  const response = await fetch(`${API_BASE_URL}/api/email-drafts/${draftId}/reject`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ rejectedReason }),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignEmailDrafts(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/email-drafts`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
