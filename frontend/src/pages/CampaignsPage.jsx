@@ -6,6 +6,8 @@ import {
   Loader2,
   Megaphone,
   RefreshCcw,
+  RotateCcw,
+  SendToBack,
   UserPlus,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -15,9 +17,13 @@ import {
   addLeadsToCampaign,
   createCampaign,
   getCampaignById,
+  getCampaignGhlSyncStatus,
   getCampaignLeads,
   getCampaigns,
+  getGhlSettingsStatus,
   getLeads,
+  retryFailedGhlSync,
+  syncCampaignToGhl,
   updateCampaign,
 } from '@/services/api'
 
@@ -42,11 +48,15 @@ export function CampaignsPage() {
   const [selectedCampaignId, setSelectedCampaignId] = useState('')
   const [selectedCampaign, setSelectedCampaign] = useState(null)
   const [campaignLeads, setCampaignLeads] = useState([])
+  const [ghlSettings, setGhlSettings] = useState(null)
+  const [ghlSyncStatus, setGhlSyncStatus] = useState(null)
   const [availableLeads, setAvailableLeads] = useState([])
   const [selectedLeadIds, setSelectedLeadIds] = useState([])
   const [form, setForm] = useState(defaultForm)
   const [isLoading, setIsLoading] = useState(true)
   const [isDetailLoading, setIsDetailLoading] = useState(false)
+  const [isGhlLoading, setIsGhlLoading] = useState(false)
+  const [isGhlSyncing, setIsGhlSyncing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isAttaching, setIsAttaching] = useState(false)
   const [error, setError] = useState('')
@@ -84,12 +94,16 @@ export function CampaignsPage() {
     setError('')
 
     try {
-      const [campaign, leads] = await Promise.all([
+      const [campaign, leads, settings, syncStatus] = await Promise.all([
         getCampaignById(campaignId),
         getCampaignLeads(campaignId),
+        getGhlSettingsStatus(),
+        getCampaignGhlSyncStatus(campaignId),
       ])
       setSelectedCampaign(campaign)
       setCampaignLeads(leads)
+      setGhlSettings(settings)
+      setGhlSyncStatus(syncStatus)
       setSelectedLeadIds([])
     } catch (loadError) {
       setError(loadError.message)
@@ -171,6 +185,66 @@ export function CampaignsPage() {
     }
   }
 
+  async function reloadGhlStatus(campaignId = selectedCampaignId) {
+    if (!campaignId) return
+
+    setIsGhlLoading(true)
+    setError('')
+
+    try {
+      const [settings, syncStatus] = await Promise.all([
+        getGhlSettingsStatus(),
+        getCampaignGhlSyncStatus(campaignId),
+      ])
+      setGhlSettings(settings)
+      setGhlSyncStatus(syncStatus)
+    } catch (ghlError) {
+      setError(ghlError.message)
+    } finally {
+      setIsGhlLoading(false)
+    }
+  }
+
+  async function handleSyncToGhl() {
+    if (!selectedCampaignId) return
+
+    setIsGhlSyncing(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await syncCampaignToGhl(selectedCampaignId)
+      setSuccess(
+        `GHL sync complete: ${result.synced} synced, ${result.skipped} skipped, ${result.failed} failed.`,
+      )
+      await Promise.all([reloadGhlStatus(selectedCampaignId), loadCampaignDetail(selectedCampaignId)])
+    } catch (ghlError) {
+      setError(ghlError.message)
+    } finally {
+      setIsGhlSyncing(false)
+    }
+  }
+
+  async function handleRetryFailedGhlSync() {
+    if (!selectedCampaignId) return
+
+    setIsGhlSyncing(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await retryFailedGhlSync(selectedCampaignId)
+      setSuccess(
+        `GHL retry complete: ${result.synced} synced, ${result.skipped} skipped, ${result.failed} failed.`,
+      )
+      await Promise.all([reloadGhlStatus(selectedCampaignId), loadCampaignDetail(selectedCampaignId)])
+    } catch (ghlError) {
+      setError(ghlError.message)
+    } finally {
+      setIsGhlSyncing(false)
+    }
+  }
+
   return (
     <>
       <header className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
@@ -219,9 +293,16 @@ export function CampaignsPage() {
           campaignLeads={campaignLeads}
           isAttaching={isAttaching}
           isDetailLoading={isDetailLoading}
+          isGhlLoading={isGhlLoading}
+          isGhlSyncing={isGhlSyncing}
           isSaving={isSaving}
+          ghlSettings={ghlSettings}
+          ghlSyncStatus={ghlSyncStatus}
           selectedLeadIds={selectedLeadIds}
           onAttach={handleAttachLeads}
+          onGhlRefresh={() => reloadGhlStatus()}
+          onGhlRetryFailed={handleRetryFailedGhlSync}
+          onGhlSync={handleSyncToGhl}
           onLeadSelection={setSelectedLeadIds}
           onStatusUpdate={handleStatusUpdate}
         />
@@ -391,11 +472,18 @@ function CampaignDetailCard({
   attachableLeads,
   campaign,
   campaignLeads,
+  ghlSettings,
+  ghlSyncStatus,
   isAttaching,
   isDetailLoading,
+  isGhlLoading,
+  isGhlSyncing,
   isSaving,
   selectedLeadIds,
   onAttach,
+  onGhlRefresh,
+  onGhlRetryFailed,
+  onGhlSync,
   onLeadSelection,
   onStatusUpdate,
 }) {
@@ -458,9 +546,157 @@ function CampaignDetailCard({
           onLeadSelection={onLeadSelection}
         />
 
+        <GhlSyncPanel
+          ghlSettings={ghlSettings}
+          ghlSyncStatus={ghlSyncStatus}
+          isGhlLoading={isGhlLoading}
+          isGhlSyncing={isGhlSyncing}
+          onRefresh={onGhlRefresh}
+          onRetryFailed={onGhlRetryFailed}
+          onSync={onGhlSync}
+        />
+
         <CampaignLeadsTable campaignLeads={campaignLeads} />
       </CardContent>
     </Card>
+  )
+}
+
+function GhlSyncPanel({
+  ghlSettings,
+  ghlSyncStatus,
+  isGhlLoading,
+  isGhlSyncing,
+  onRefresh,
+  onRetryFailed,
+  onSync,
+}) {
+  const summary = ghlSyncStatus?.summary || {
+    total: 0,
+    synced: 0,
+    pending: 0,
+    failed: 0,
+  }
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">GoHighLevel Sync</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Prepare campaign leads for future GoHighLevel contact and workflow sync.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={onRefresh}
+            disabled={isGhlLoading || isGhlSyncing}
+          >
+            <RefreshCcw className="h-4 w-4" aria-hidden="true" />
+            Refresh
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={onRetryFailed}
+            disabled={isGhlLoading || isGhlSyncing || !summary.failed}
+          >
+            <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            Retry Failed
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={onSync}
+            disabled={isGhlLoading || isGhlSyncing || !summary.total}
+          >
+            {isGhlSyncing ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <SendToBack className="h-4 w-4" aria-hidden="true" />
+            )}
+            Sync Campaign Leads
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <InfoTile label="GHL mode" value={ghlSettings?.mode || '-'} />
+        <InfoTile label="Credentials" value={ghlSettings?.credentialStatus || '-'} />
+        <InfoTile label="API base" value={ghlSettings?.apiBaseUrl || '-'} />
+      </div>
+
+      {ghlSettings?.mockMode ? (
+        <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+          Mock mode active. No real GoHighLevel contacts will be created.
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <InfoTile label="Total" value={summary.total} />
+        <InfoTile label="Synced" value={summary.synced} />
+        <InfoTile label="Pending" value={summary.pending} />
+        <InfoTile label="Failed" value={summary.failed} />
+      </div>
+
+      <GhlSyncStatusTable rows={ghlSyncStatus?.rows || []} />
+    </div>
+  )
+}
+
+function GhlSyncStatusTable({ rows }) {
+  if (!rows.length) {
+    return (
+      <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
+        No campaign leads are available for GHL sync.
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Lead</th>
+              <th className="px-4 py-3">Company</th>
+              <th className="px-4 py-3">GHL Status</th>
+              <th className="px-4 py-3">Contact ID</th>
+              <th className="px-4 py-3">Synced</th>
+              <th className="px-4 py-3">Error</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {rows.map((row) => (
+              <tr key={row.id} className="align-top">
+                <td className="min-w-52 px-4 py-3">
+                  <p className="font-medium text-slate-950">
+                    {row.leadName || row.email || 'Unnamed lead'}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">{row.email || 'No email'}</p>
+                </td>
+                <td className="min-w-36 px-4 py-3 text-slate-700">{row.company || '-'}</td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <SyncBadge status={row.ghlSyncStatus} />
+                </td>
+                <td className="min-w-56 px-4 py-3 text-slate-700">
+                  {row.ghlContactId || '-'}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  {formatDate(row.ghlSyncedAt)}
+                </td>
+                <td className="min-w-48 px-4 py-3 text-slate-700">
+                  {row.ghlSyncError || '-'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   )
 }
 
@@ -585,6 +821,16 @@ function CampaignLeadsTable({ campaignLeads }) {
 
 function StatusBadge({ status }) {
   return <Badge variant={statusVariants[status] || 'secondary'}>{status}</Badge>
+}
+
+function SyncBadge({ status }) {
+  const variants = {
+    failed: 'destructive',
+    pending: 'warning',
+    synced: 'success',
+  }
+
+  return <Badge variant={variants[status] || 'secondary'}>{status || 'pending'}</Badge>
 }
 
 function InfoTile({ label, value }) {

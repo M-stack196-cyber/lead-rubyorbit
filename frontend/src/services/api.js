@@ -111,3 +111,35 @@ export async function getLeads() {
   const payload = await parseApiResponse(response)
   return payload.data
 }
+
+export async function getGhlSettingsStatus() {
+  const response = await fetch(`${API_BASE_URL}/api/ghl/settings/status`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function syncCampaignToGhl(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/ghl/campaigns/${campaignId}/sync`, {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function retryFailedGhlSync(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/ghl/campaigns/${campaignId}/retry-failed`, {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignGhlSyncStatus(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/ghl/campaigns/${campaignId}/sync-status`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}

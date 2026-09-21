@@ -20,6 +20,7 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 - Phase 1 completed: Supabase PostgreSQL schema migration, schema documentation, and backend database configuration placeholders.
 - Phase 2 completed: multi-format lead upload, validation, preview, and import flow.
 - Phase 3 completed: campaign management foundation with campaign CRUD, imported lead listing, and campaign lead attachment.
+- Phase 4 completed: GoHighLevel integration foundation with mock-mode campaign lead sync.
 
 ## Phase 0 Scope
 
@@ -42,7 +43,7 @@ Phase 1 adds the database foundation only:
 - Backend Supabase/PostgreSQL config placeholders
 - Environment variable examples for Supabase and PostgreSQL
 
-Later phases will add outreach execution workflows. The current project intentionally does not include authentication, GHL integration, AI, email sending, reply checking, follow-ups, notifications delivery, or workers.
+Later phases will add outreach execution workflows. The current project intentionally does not include authentication, AI, email sending, reply checking, follow-ups, notifications delivery, or workers.
 
 ## Phase 2 Scope
 
@@ -64,6 +65,32 @@ Phase 3 adds the campaign management foundation only:
 - Campaigns frontend page with list, create form, detail section, status badges, lead counts, and lead attachment controls
 
 Phase 3 intentionally does not implement GHL, AI email generation, email sending, reply checking, follow-ups, authentication, or notification workflows.
+
+## Phase 4 Scope
+
+Phase 4 adds the GoHighLevel integration foundation only:
+
+- GHL settings status API with `mock` and `live` modes
+- Mock GHL client that simulates contact creation and workflow enrollment
+- Campaign lead sync, retry failed sync, and sync status APIs
+- Campaign-specific sync fields on `campaign_leads`
+- Campaign detail UI section for mock/live status, sync controls, summary cards, and sync rows
+
+Mock mode is the default and does not require real GoHighLevel credentials. No real GoHighLevel contacts or workflow enrollments are created in mock mode.
+
+Live mode is scaffolded only. Real live sync requires `GHL_PRIVATE_INTEGRATION_TOKEN`, `GHL_LOCATION_ID`, and `GHL_WORKFLOW_ID`; if any are missing, the backend returns a clear error.
+
+### GHL Environment Variables
+
+```bash
+GHL_MODE=mock
+GHL_PRIVATE_INTEGRATION_TOKEN=
+GHL_LOCATION_ID=
+GHL_WORKFLOW_ID=
+GHL_API_BASE_URL=https://services.leadconnectorhq.com
+```
+
+Phase 4 intentionally does not implement AI email generation, email sending, reply checking, follow-ups, authentication, or notification workflows.
 
 ## API Endpoints
 
@@ -90,6 +117,13 @@ Phase 3 intentionally does not implement GHL, AI email generation, email sending
 
 - `GET /api/leads`
 
+### GHL
+
+- `GET /api/ghl/settings/status`
+- `POST /api/ghl/campaigns/:campaignId/sync`
+- `POST /api/ghl/campaigns/:campaignId/retry-failed`
+- `GET /api/ghl/campaigns/:campaignId/sync-status`
+
 ## Frontend
 
 ```bash
@@ -112,13 +146,14 @@ The backend runs at `http://localhost:5000` by default.
 
 ## Database Migration
 
-The Phase 1 database migration is located at:
+The database migrations are located at:
 
 ```bash
 backend/db/migrations/001_initial_schema.sql
+backend/db/migrations/002_ghl_sync_fields.sql
 ```
 
-Apply this SQL in a Supabase PostgreSQL project when you are ready to create the schema. Do not commit real `.env` files or secrets.
+Apply these SQL migrations in a Supabase PostgreSQL project when you are ready to create or update the schema. Do not commit real `.env` files or secrets.
 
 ## Verify Phase 0
 

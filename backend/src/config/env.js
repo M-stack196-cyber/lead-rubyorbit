@@ -11,5 +11,12 @@ export const env = {
     anonKey: process.env.SUPABASE_ANON_KEY || '',
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   },
+  ghl: {
+    mode: process.env.GHL_MODE || 'mock',
+    privateIntegrationToken: process.env.GHL_PRIVATE_INTEGRATION_TOKEN || '',
+    locationId: process.env.GHL_LOCATION_ID || '',
+    workflowId: process.env.GHL_WORKFLOW_ID || '',
+    apiBaseUrl: process.env.GHL_API_BASE_URL || 'https://services.leadconnectorhq.com',
+  },
   databaseUrl: process.env.DATABASE_URL || '',
 }

@@ -1,11 +1,12 @@
 # LeadRubyOrbit Database Schema
 
-Phase 1 adds the Supabase PostgreSQL schema foundation for LeadRubyOrbit.
+Phase 1 adds the Supabase PostgreSQL schema foundation for LeadRubyOrbit. Later migrations extend the foundation as application phases are implemented.
 
 ## Phase 1 Scope
 
 - Initial PostgreSQL migration at `backend/db/migrations/001_initial_schema.sql`
 - Core tables for teams, uploads, leads, campaigns, drafts, sent emails, replies, follow-ups, workflow settings, decisions, notifications, and audit logs
+- Phase 4 GHL sync fields on `campaign_leads`
 - Status check constraints for important workflow fields
 - Foreign key relationships between workflow entities
 - Useful lookup indexes
@@ -35,7 +36,7 @@ Stores campaign shells and optional future GHL workflow references. Campaign sta
 
 ### campaign_leads
 
-Joins campaigns to leads and tracks future sync/outreach state. Each lead can appear once per campaign. GHL sync statuses are `pending`, `synced`, and `failed`. Outreach statuses cover the later workflow from pending sync through approval, sending, reply handling, follow-up, pause, and stop states.
+Joins campaigns to leads and tracks future sync/outreach state. Each lead can appear once per campaign. GHL sync statuses are `pending`, `synced`, and `failed`. Phase 4 stores `ghl_contact_id`, `ghl_sync_error`, `ghl_synced_at`, and `ghl_workflow_id` here because sync is campaign-specific. Outreach statuses cover the later workflow from pending sync through approval, sending, reply handling, follow-up, pause, and stop states.
 
 ### email_accounts
 
@@ -85,7 +86,7 @@ Stores audit events with actor, action, entity, and metadata fields.
 ## Intentionally Not Implemented Yet
 
 - Lead file upload, parsing, validation, or deduplication logic
-- GHL integration or workflow syncing
+- Real GHL integration or workflow syncing outside mock mode
 - AI-generated email content
 - Email sending or provider integrations
 - Reply checking workers
