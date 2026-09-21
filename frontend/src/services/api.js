@@ -342,3 +342,42 @@ export async function getCampaignSentEmails(campaignId) {
   const payload = await parseApiResponse(response)
   return payload.data
 }
+
+export async function getReplyMonitoringStatus() {
+  const response = await fetch(`${API_BASE_URL}/api/reply-monitoring/status`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function checkSentEmailReplies(sentEmailId) {
+  const response = await fetch(`${API_BASE_URL}/api/reply-monitoring/check-sent-email/${sentEmailId}`, {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function checkCampaignReplies(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/reply-monitoring/check-campaign/${campaignId}`, {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignReplies(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/reply-monitoring/campaigns/${campaignId}/replies`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getSentEmailReplies(sentEmailId) {
+  const response = await fetch(`${API_BASE_URL}/api/reply-monitoring/sent-emails/${sentEmailId}/replies`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}

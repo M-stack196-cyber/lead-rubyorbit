@@ -9,6 +9,8 @@ Phase 1 adds the Supabase PostgreSQL schema foundation for LeadRubyOrbit. Later 
 - Phase 4 GHL sync fields on `campaign_leads`
 - Phase 5 rejected-draft reason support on `email_drafts`
 - Phase 6 email account management fields on `email_accounts`
+- Phase 8 Gmail OAuth token metadata on `email_accounts`
+- Phase 11 Gmail reply monitoring fields on `replies`
 - Status check constraints for important workflow fields
 - Foreign key relationships between workflow entities
 - Useful lookup indexes
@@ -42,7 +44,7 @@ Joins campaigns to leads and tracks future sync/outreach state. Each lead can ap
 
 ### email_accounts
 
-Stores email account configuration placeholders. Phase 6 account providers are `smtp`, `gmail`, `outlook`, and `custom`. Account statuses are `draft`, `active`, `disabled`, `archived`, and `error`. SMTP connection fields and daily limits are stored for later phases. Sensitive provider credentials are not exposed through the API; Phase 6 stores only an `encrypted_secret_placeholder` marker for future encryption work and does not send emails.
+Stores email account configuration placeholders. Phase 6 account providers are `smtp`, `gmail`, `outlook`, and `custom`. Account statuses are `draft`, `active`, `disabled`, `archived`, and `error`. SMTP connection fields and daily limits are stored for later phases. Phase 8 adds Gmail OAuth user, scope, connection, token status, token expiry, and last-error fields. Sensitive provider credentials and Gmail tokens are not exposed through the API; placeholder token storage must be upgraded to production encryption/KMS before deployment.
 
 ### email_drafts
 
@@ -50,11 +52,11 @@ Stores draft email content and approval state. Draft types are `primary`, `follo
 
 ### sent_emails
 
-Stores sent email records and provider message/thread references. Statuses are `sent`, `failed`, `waiting_reply`, `replied`, and `no_reply`.
+Stores sent email records and provider message/thread references. Later migrations add provider, message/thread aliases, and error details. Statuses include `queued`, `sent`, `failed`, `blocked`, `waiting_reply`, `replied`, and `no_reply`.
 
 ### replies
 
-Stores detected reply records linked to sent emails, leads, campaigns, and campaign lead rows. Phase 1 does not implement reply checking.
+Stores detected reply records linked to sent emails, leads, campaigns, campaign lead rows, and email accounts. Phase 11 adds Gmail message/thread fields, body preview, raw payload metadata, `updated_at`, and duplicate protection by unique `gmail_message_id` when present.
 
 ### followups
 
@@ -90,9 +92,11 @@ Stores audit events with actor, action, entity, and metadata fields.
 - Lead file upload, parsing, validation, or deduplication logic
 - Real GHL integration or workflow syncing outside mock mode
 - AI-generated email content
-- Email sending or provider integrations
-- Reply checking workers
+- Automatic email sending outside explicit approved-email send actions
+- Automatic reply checking workers
 - Follow-up scheduling workers
+- Automatic follow-up sending
+- AI reply generation
 - Notifications delivery
 - Authentication and authorization policies
 - Frontend pages backed by real database data

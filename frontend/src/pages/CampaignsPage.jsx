@@ -8,6 +8,7 @@ import {
   Loader2,
   MailCheck,
   Megaphone,
+  MessageSquareReply,
   RefreshCcw,
   RotateCcw,
   Send,
@@ -21,18 +22,22 @@ import { cn } from '@/lib/utils'
 import {
   addLeadsToCampaign,
   approveEmailDraft,
+  checkCampaignReplies,
+  checkSentEmailReplies,
   createCampaign,
   createEmailDraft,
   getCampaignById,
   getCampaignEmailDrafts,
   getCampaignGhlSyncStatus,
   getCampaignLeads,
+  getCampaignReplies,
   getCampaignSentEmails,
   getCampaigns,
   getEmailAccounts,
   getEmailSendingStatus,
   getGhlSettingsStatus,
   getLeads,
+  getReplyMonitoringStatus,
   rejectEmailDraft,
   retryFailedGhlSync,
   sendCampaignEmails,
@@ -75,6 +80,9 @@ export function CampaignsPage() {
   const [emailAccounts, setEmailAccounts] = useState([])
   const [emailSendingStatus, setEmailSendingStatus] = useState(null)
   const [sentEmails, setSentEmails] = useState([])
+  const [replyMonitoringStatus, setReplyMonitoringStatus] = useState(null)
+  const [campaignReplies, setCampaignReplies] = useState([])
+  const [lastReplyCheckSummary, setLastReplyCheckSummary] = useState(null)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState('')
   const [selectedDraftId, setSelectedDraftId] = useState('')
   const [draftForm, setDraftForm] = useState(defaultDraftForm)
@@ -89,6 +97,8 @@ export function CampaignsPage() {
   const [isGhlSyncing, setIsGhlSyncing] = useState(false)
   const [isDraftSaving, setIsDraftSaving] = useState(false)
   const [isEmailSending, setIsEmailSending] = useState(false)
+  const [isReplyChecking, setIsReplyChecking] = useState(false)
+  const [checkingSentEmailId, setCheckingSentEmailId] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [isAttaching, setIsAttaching] = useState(false)
   const [error, setError] = useState('')
@@ -126,8 +136,18 @@ export function CampaignsPage() {
     setError('')
 
     try {
-      const [campaign, leads, settings, syncStatus, drafts, sendStatus, sentEmailList, accounts] =
-        await Promise.all([
+      const [
+        campaign,
+        leads,
+        settings,
+        syncStatus,
+        drafts,
+        sendStatus,
+        sentEmailList,
+        accounts,
+        replyStatus,
+        replies,
+      ] = await Promise.all([
           getCampaignById(campaignId),
           getCampaignLeads(campaignId),
           getGhlSettingsStatus(),
@@ -136,6 +156,8 @@ export function CampaignsPage() {
           getEmailSendingStatus(),
           getCampaignSentEmails(campaignId),
           getEmailAccounts(),
+          getReplyMonitoringStatus(),
+          getCampaignReplies(campaignId),
         ])
       setSelectedCampaign(campaign)
       setCampaignLeads(leads)
@@ -145,6 +167,8 @@ export function CampaignsPage() {
       setEmailSendingStatus(sendStatus)
       setSentEmails(sentEmailList)
       setEmailAccounts(accounts)
+      setReplyMonitoringStatus(replyStatus)
+      setCampaignReplies(replies)
       setSelectedEmailAccountId((currentAccountId) => {
         const isCurrentAvailable = accounts.some(
           (account) =>
@@ -177,6 +201,7 @@ export function CampaignsPage() {
       setCampaignLeads([])
       setEmailDrafts([])
       setSentEmails([])
+      setCampaignReplies([])
     }
   }, [loadCampaignDetail, selectedCampaignId])
 
@@ -337,6 +362,20 @@ export function CampaignsPage() {
     setEmailAccounts(accounts)
   }
 
+  async function reloadReplies(campaignId = selectedCampaignId) {
+    if (!campaignId) return
+
+    const [sentEmailList, replies, replyStatus] = await Promise.all([
+      getCampaignSentEmails(campaignId),
+      getCampaignReplies(campaignId),
+      getReplyMonitoringStatus(),
+    ])
+
+    setSentEmails(sentEmailList)
+    setCampaignReplies(replies)
+    setReplyMonitoringStatus(replyStatus)
+  }
+
   async function handleSaveDraft(event) {
     event.preventDefault()
     if (!selectedCampaignId) return
@@ -459,6 +498,53 @@ export function CampaignsPage() {
     }
   }
 
+  async function handleCheckCampaignReplies() {
+    if (!selectedCampaignId) return
+
+    setIsReplyChecking(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await checkCampaignReplies(selectedCampaignId)
+      setLastReplyCheckSummary(result)
+      setSuccess(
+        `Reply check complete: ${result.checked} checked, ${result.replied} replied, ${result.newRepliesSaved} new replies, ${result.failed} failed.`,
+      )
+      await Promise.all([
+        reloadReplies(selectedCampaignId),
+        loadCampaignDetail(selectedCampaignId),
+      ])
+    } catch (replyError) {
+      setError(replyError.message)
+    } finally {
+      setIsReplyChecking(false)
+    }
+  }
+
+  async function handleCheckSentEmailReplies(sentEmailId) {
+    if (!sentEmailId) return
+
+    setCheckingSentEmailId(sentEmailId)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await checkSentEmailReplies(sentEmailId)
+      setSuccess(
+        `Reply check complete: ${result.repliesFound} found, ${result.newRepliesSaved} new, ${result.alreadyExisting} existing.`,
+      )
+      await Promise.all([
+        reloadReplies(selectedCampaignId),
+        loadCampaignDetail(selectedCampaignId),
+      ])
+    } catch (replyError) {
+      setError(replyError.message)
+    } finally {
+      setCheckingSentEmailId('')
+    }
+  }
+
   return (
     <>
       <header className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
@@ -512,6 +598,7 @@ export function CampaignsPage() {
           isAttaching={isAttaching}
           isDetailLoading={isDetailLoading}
           isEmailSending={isEmailSending}
+          isReplyChecking={isReplyChecking}
           isGhlLoading={isGhlLoading}
           isGhlSyncing={isGhlSyncing}
           isDraftSaving={isDraftSaving}
@@ -522,6 +609,10 @@ export function CampaignsPage() {
           selectedEmailAccountId={selectedEmailAccountId}
           selectedLeadIds={selectedLeadIds}
           sentEmails={sentEmails}
+          campaignReplies={campaignReplies}
+          checkingSentEmailId={checkingSentEmailId}
+          lastReplyCheckSummary={lastReplyCheckSummary}
+          replyMonitoringStatus={replyMonitoringStatus}
           onAttach={handleAttachLeads}
           onGhlRefresh={() => reloadGhlStatus()}
           onGhlRetryFailed={handleRetryFailedGhlSync}
@@ -535,6 +626,8 @@ export function CampaignsPage() {
           onEmailAccountChange={setSelectedEmailAccountId}
           onSendCampaignEmails={handleSendCampaignEmails}
           onSendDraft={handleSendDraft}
+          onCheckCampaignReplies={handleCheckCampaignReplies}
+          onCheckSentEmailReplies={handleCheckSentEmailReplies}
           onLeadSelection={setSelectedLeadIds}
           onStatusUpdate={handleStatusUpdate}
         />
@@ -713,6 +806,7 @@ function CampaignDetailCard({
   isAttaching,
   isDetailLoading,
   isEmailSending,
+  isReplyChecking,
   isGhlLoading,
   isGhlSyncing,
   isDraftSaving,
@@ -721,6 +815,10 @@ function CampaignDetailCard({
   selectedLeadIds,
   selectedDraftId,
   sentEmails,
+  campaignReplies,
+  checkingSentEmailId,
+  lastReplyCheckSummary,
+  replyMonitoringStatus,
   onAttach,
   onGhlRefresh,
   onGhlRetryFailed,
@@ -735,6 +833,8 @@ function CampaignDetailCard({
   onLeadSelection,
   onSendCampaignEmails,
   onSendDraft,
+  onCheckCampaignReplies,
+  onCheckSentEmailReplies,
   onStatusUpdate,
 }) {
   if (isDetailLoading) {
@@ -830,6 +930,17 @@ function CampaignDetailCard({
           onAccountChange={onEmailAccountChange}
           onSendCampaign={onSendCampaignEmails}
           onSendDraft={onSendDraft}
+          onCheckSentEmailReplies={onCheckSentEmailReplies}
+          checkingSentEmailId={checkingSentEmailId}
+        />
+
+        <ReplyMonitoringPanel
+          isReplyChecking={isReplyChecking}
+          lastReplyCheckSummary={lastReplyCheckSummary}
+          replies={campaignReplies}
+          replyMonitoringStatus={replyMonitoringStatus}
+          sentEmails={sentEmails}
+          onCheckCampaign={onCheckCampaignReplies}
         />
 
         <CampaignLeadsTable campaignLeads={campaignLeads} />
@@ -1238,7 +1349,9 @@ function EmailSendingPanel({
   isEmailSending,
   selectedEmailAccountId,
   sentEmails,
+  checkingSentEmailId,
   onAccountChange,
+  onCheckSentEmailReplies,
   onSendCampaign,
   onSendDraft,
 }) {
@@ -1338,7 +1451,11 @@ function EmailSendingPanel({
         onSendDraft={onSendDraft}
       />
 
-      <SentEmailsTable sentEmails={sentEmails} />
+      <SentEmailsTable
+        checkingSentEmailId={checkingSentEmailId}
+        sentEmails={sentEmails}
+        onCheckReply={onCheckSentEmailReplies}
+      />
     </div>
   )
 }
@@ -1403,7 +1520,7 @@ function ApprovedDraftSendTable({
   )
 }
 
-function SentEmailsTable({ sentEmails }) {
+function SentEmailsTable({ checkingSentEmailId, sentEmails, onCheckReply }) {
   if (!sentEmails.length) {
     return (
       <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
@@ -1424,6 +1541,7 @@ function SentEmailsTable({ sentEmails }) {
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Message ID</th>
               <th className="px-4 py-3">Sent</th>
+              <th className="px-4 py-3">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 bg-white">
@@ -1445,6 +1563,156 @@ function SentEmailsTable({ sentEmails }) {
                 <td className="min-w-72 px-4 py-3 text-slate-700">{email.messageId || '-'}</td>
                 <td className="whitespace-nowrap px-4 py-3 text-slate-700">
                   {formatDate(email.sentAt)}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <button
+                    className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    type="button"
+                    onClick={() => onCheckReply(email.id)}
+                    disabled={checkingSentEmailId === email.id}
+                  >
+                    {checkingSentEmailId === email.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <MessageSquareReply className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    Check reply
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function ReplyMonitoringPanel({
+  isReplyChecking,
+  lastReplyCheckSummary,
+  replies,
+  replyMonitoringStatus,
+  sentEmails,
+  onCheckCampaign,
+}) {
+  const summary = {
+    totalSentEmails: sentEmails.length,
+    repliesFound: replies.length,
+    newReplies:
+      lastReplyCheckSummary?.newRepliesSaved ??
+      replies.filter((reply) => {
+        if (!reply.createdAt) return false
+
+        const createdAt = new Date(reply.createdAt).getTime()
+        return Number.isFinite(createdAt) && Date.now() - createdAt < 1000 * 60 * 60
+      }).length,
+    repliedLeads: new Set(replies.map((reply) => reply.leadId).filter(Boolean)).size,
+  }
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Reply Monitoring</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Reply monitoring is manual in this phase. No automatic follow-ups are sent.
+          </p>
+        </div>
+        <button
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          onClick={onCheckCampaign}
+          disabled={isReplyChecking || !sentEmails.length}
+        >
+          {isReplyChecking ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <MessageSquareReply className="h-4 w-4" aria-hidden="true" />
+          )}
+          Check campaign replies
+        </button>
+      </div>
+
+      <div
+        className={cn(
+          'mt-4 rounded-md border px-3 py-3 text-sm',
+          replyMonitoringStatus?.gmailReadonlyAvailable
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+            : 'border-amber-200 bg-amber-50 text-amber-800',
+        )}
+      >
+        {replyMonitoringStatus?.message ||
+          'Reply monitoring is manual in this phase. No automatic follow-ups are sent.'}
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <InfoTile label="Total sent emails" value={summary.totalSentEmails} />
+        <InfoTile label="Replies found" value={summary.repliesFound} />
+        <InfoTile label="New replies" value={summary.newReplies} />
+        <InfoTile label="Replied leads" value={summary.repliedLeads} />
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <InfoTile
+          label="Gmail readonly"
+          value={replyMonitoringStatus?.gmailReadonlyAvailable ? 'available' : 'missing'}
+        />
+        <InfoTile
+          label="Connected Gmail accounts"
+          value={replyMonitoringStatus?.connectedGmailAccounts ?? 0}
+        />
+      </div>
+
+      <RepliesTable replies={replies} />
+    </div>
+  )
+}
+
+function RepliesTable({ replies }) {
+  if (!replies.length) {
+    return (
+      <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
+        No replies have been detected for this campaign.
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Lead</th>
+              <th className="px-4 py-3">From</th>
+              <th className="px-4 py-3">To</th>
+              <th className="px-4 py-3">Subject</th>
+              <th className="px-4 py-3">Preview</th>
+              <th className="px-4 py-3">Received</th>
+              <th className="px-4 py-3">Sent Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {replies.map((reply) => (
+              <tr key={reply.id} className="align-top">
+                <td className="min-w-52 px-4 py-3">
+                  <p className="font-medium text-slate-950">
+                    {reply.lead?.name || reply.lead?.email || 'Unnamed lead'}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">{reply.lead?.company || '-'}</p>
+                </td>
+                <td className="min-w-56 px-4 py-3 text-slate-700">{reply.fromEmail || '-'}</td>
+                <td className="min-w-56 px-4 py-3 text-slate-700">{reply.toEmail || '-'}</td>
+                <td className="min-w-56 px-4 py-3 text-slate-700">{reply.subject || '-'}</td>
+                <td className="min-w-80 px-4 py-3 text-slate-700">
+                  <p className="line-clamp-3">{reply.bodyPreview || '-'}</p>
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  {formatDate(reply.receivedAt)}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <SyncBadge status={reply.sentEmail?.status || 'replied'} />
                 </td>
               </tr>
             ))}

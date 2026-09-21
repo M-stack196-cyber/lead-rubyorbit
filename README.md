@@ -24,6 +24,10 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 - Phase 5 completed: email draft creation foundation with manual drafting, editing, approval, and rejection.
 - Phase 6 completed: email account management foundation for future sending phases.
 - Phase 7 completed: mock approved-email sending foundation with sent email history.
+- Phase 8 completed: Gmail OAuth foundation for connecting Gmail accounts.
+- Phase 9 completed: Gmail OAuth connection test passed for `incdatamart@gmail.com`.
+- Phase 10 completed: real Gmail live send test passed; keep `EMAIL_SEND_MODE=mock` unless explicitly testing live sends.
+- Phase 11 completed: Gmail reply monitoring foundation with manual Gmail readonly checks and campaign reply display.
 
 ## Phase 0 Scope
 
@@ -139,6 +143,29 @@ Phase 7 does not send real emails. Real SMTP, Gmail, Outlook, OAuth, inbox integ
 EMAIL_SEND_MODE=mock
 ```
 
+## Phase 11 Scope
+
+Phase 11 adds manual Gmail reply monitoring only:
+
+- Gmail readonly status API for reply monitoring readiness
+- Manual sent-email reply check by Gmail thread ID
+- Manual campaign-level reply check for sent or waiting-reply emails
+- Reply persistence backed by the existing `replies` table
+- Duplicate protection by `gmail_message_id`
+- Sent email status updates to `replied` when a reply is detected
+- Campaign lead outreach status updates to `replied`
+- Campaign detail UI section with reply summary cards and a replies table
+
+Reply monitoring is manual in this phase. No automatic follow-ups are sent, no AI reply generation is implemented, and no scheduler/background cron is active.
+
+Gmail OAuth must include the readonly scope:
+
+```bash
+GOOGLE_OAUTH_SCOPES="https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly"
+```
+
+Security note: Gmail tokens stay backend-only and are never returned in API responses. The current placeholder token storage should be upgraded to production encryption/KMS before deployment. Do not commit `backend/.env`.
+
 ## API Endpoints
 
 ### Health
@@ -198,6 +225,21 @@ EMAIL_SEND_MODE=mock
 - `POST /api/email-sending/send-campaign/:campaignId`
 - `GET /api/email-sending/campaigns/:campaignId/sent-emails`
 
+### Gmail
+
+- `GET /api/gmail/status`
+- `GET /api/gmail/connect/:emailAccountId`
+- `GET /api/gmail/oauth/callback`
+- `POST /api/gmail/disconnect/:emailAccountId`
+
+### Reply Monitoring
+
+- `GET /api/reply-monitoring/status`
+- `POST /api/reply-monitoring/check-sent-email/:sentEmailId`
+- `POST /api/reply-monitoring/check-campaign/:campaignId`
+- `GET /api/reply-monitoring/campaigns/:campaignId/replies`
+- `GET /api/reply-monitoring/sent-emails/:sentEmailId/replies`
+
 ## Frontend
 
 ```bash
@@ -228,6 +270,8 @@ backend/db/migrations/002_ghl_sync_fields.sql
 backend/db/migrations/003_email_draft_fields.sql
 backend/db/migrations/004_email_account_fields.sql
 backend/db/migrations/005_sent_email_fields.sql
+backend/db/migrations/006_gmail_oauth_fields.sql
+backend/db/migrations/007_reply_monitoring_fields.sql
 ```
 
 Apply these SQL migrations in a Supabase PostgreSQL project when you are ready to create or update the schema. Do not commit real `.env` files or secrets.
