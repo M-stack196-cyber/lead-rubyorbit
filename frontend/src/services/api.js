@@ -206,8 +206,51 @@ export async function rejectEmailDraft(draftId, rejectedReason) {
   return payload.data
 }
 
+export async function submitEmailDraftForApproval(draftId) {
+  const response = await fetch(`${API_BASE_URL}/api/email-drafts/${draftId}/submit-for-approval`, {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function sendReplyDraft(draftId, emailAccountId) {
+  const response = await fetch(`${API_BASE_URL}/api/email-drafts/${draftId}/send-reply`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ emailAccountId }),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
 export async function getCampaignEmailDrafts(campaignId) {
   const response = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/email-drafts`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getReplyDrafts() {
+  const response = await fetch(`${API_BASE_URL}/api/email-drafts/reply-drafts`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignReplyDrafts(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/reply-drafts`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getReplyReplyDrafts(replyId) {
+  const response = await fetch(`${API_BASE_URL}/api/replies/${replyId}/reply-drafts`)
 
   const payload = await parseApiResponse(response)
   return payload.data

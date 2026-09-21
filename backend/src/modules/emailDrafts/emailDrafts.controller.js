@@ -4,7 +4,10 @@ import {
   getEmailDraftById,
   listCampaignEmailDrafts,
   listEmailDrafts,
+  listReplyDrafts,
   rejectEmailDraft,
+  sendReplyDraft,
+  submitEmailDraftForApproval,
   updateEmailDraft,
 } from './emailDrafts.service.js'
 
@@ -73,12 +76,41 @@ export async function approveEmailDraftController(req, res, next) {
   }
 }
 
+export async function submitEmailDraftForApprovalController(req, res, next) {
+  try {
+    const result = await submitEmailDraftForApproval(req.params.id)
+
+    res.json({
+      message: 'Email draft submitted for approval successfully.',
+      data: result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
 export async function rejectEmailDraftController(req, res, next) {
   try {
-    const result = await rejectEmailDraft(req.params.id, req.body.rejectedReason)
+    const result = await rejectEmailDraft(req.params.id, req.body?.rejectedReason)
 
     res.json({
       message: 'Email draft rejected successfully.',
+      data: result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function sendReplyDraftController(req, res, next) {
+  try {
+    const result = await sendReplyDraft(req.params.id, req.body)
+
+    res.status(201).json({
+      message:
+        result.sendMode === 'live'
+          ? 'Reply draft sent through live Gmail successfully.'
+          : 'Reply draft mock send completed successfully.',
       data: result,
     })
   } catch (error) {
@@ -92,6 +124,45 @@ export async function listCampaignEmailDraftsController(req, res, next) {
 
     res.json({
       message: 'Campaign email drafts fetched successfully.',
+      data: result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function listReplyDraftsController(_req, res, next) {
+  try {
+    const result = await listReplyDrafts()
+
+    res.json({
+      message: 'Reply drafts fetched successfully.',
+      data: result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function listCampaignReplyDraftsController(req, res, next) {
+  try {
+    const result = await listReplyDrafts({ campaignId: req.params.campaignId })
+
+    res.json({
+      message: 'Campaign reply drafts fetched successfully.',
+      data: result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function listReplyReplyDraftsController(req, res, next) {
+  try {
+    const result = await listReplyDrafts({ replyId: req.params.replyId })
+
+    res.json({
+      message: 'Reply-linked drafts fetched successfully.',
       data: result,
     })
   } catch (error) {

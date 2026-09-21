@@ -220,6 +220,8 @@ async function createReplyDraft(supabase, decision) {
       campaign_id: decision.campaign_id,
       lead_id: decision.lead_id,
       campaign_lead_id: decision.campaign_lead_id,
+      reply_id: decision.reply_id,
+      sent_email_id: decision.sent_email_id,
       type: 'reply',
       subject,
       body: 'Write your reply here...',

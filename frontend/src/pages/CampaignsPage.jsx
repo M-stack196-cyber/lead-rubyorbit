@@ -33,6 +33,7 @@ import {
   getCampaignGhlSyncStatus,
   getCampaignLeads,
   getCampaignReplies,
+  getCampaignReplyDrafts,
   getCampaignSentEmails,
   getCampaignTeamDecisions,
   getCampaigns,
@@ -45,6 +46,8 @@ import {
   retryFailedGhlSync,
   sendCampaignEmails,
   sendEmailDraft,
+  sendReplyDraft,
+  submitEmailDraftForApproval,
   syncCampaignToGhl,
   updateCampaign,
   updateEmailDraft,
@@ -74,6 +77,12 @@ const defaultDraftForm = {
   rejectedReason: '',
 }
 
+const defaultReplyDraftForm = {
+  subject: '',
+  body: '',
+  rejectedReason: '',
+}
+
 export function CampaignsPage() {
   const [campaigns, setCampaigns] = useState([])
   const [selectedCampaignId, setSelectedCampaignId] = useState('')
@@ -85,11 +94,14 @@ export function CampaignsPage() {
   const [sentEmails, setSentEmails] = useState([])
   const [replyMonitoringStatus, setReplyMonitoringStatus] = useState(null)
   const [campaignReplies, setCampaignReplies] = useState([])
+  const [replyDrafts, setReplyDrafts] = useState([])
   const [teamDecisions, setTeamDecisions] = useState([])
   const [lastReplyCheckSummary, setLastReplyCheckSummary] = useState(null)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState('')
   const [selectedDraftId, setSelectedDraftId] = useState('')
   const [draftForm, setDraftForm] = useState(defaultDraftForm)
+  const [selectedReplyDraftId, setSelectedReplyDraftId] = useState('')
+  const [replyDraftForm, setReplyDraftForm] = useState(defaultReplyDraftForm)
   const [ghlSettings, setGhlSettings] = useState(null)
   const [ghlSyncStatus, setGhlSyncStatus] = useState(null)
   const [availableLeads, setAvailableLeads] = useState([])
@@ -104,6 +116,8 @@ export function CampaignsPage() {
   const [isReplyChecking, setIsReplyChecking] = useState(false)
   const [checkingSentEmailId, setCheckingSentEmailId] = useState('')
   const [activeDecisionId, setActiveDecisionId] = useState('')
+  const [activeReplyDraftId, setActiveReplyDraftId] = useState('')
+  const [isReplyDraftSaving, setIsReplyDraftSaving] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isAttaching, setIsAttaching] = useState(false)
   const [error, setError] = useState('')
@@ -152,6 +166,7 @@ export function CampaignsPage() {
         accounts,
         replyStatus,
         replies,
+        replyDraftList,
         decisions,
       ] = await Promise.all([
           getCampaignById(campaignId),
@@ -164,6 +179,7 @@ export function CampaignsPage() {
           getEmailAccounts(),
           getReplyMonitoringStatus(),
           getCampaignReplies(campaignId),
+          getCampaignReplyDrafts(campaignId),
           getCampaignTeamDecisions(campaignId),
         ])
       setSelectedCampaign(campaign)
@@ -176,6 +192,7 @@ export function CampaignsPage() {
       setEmailAccounts(accounts)
       setReplyMonitoringStatus(replyStatus)
       setCampaignReplies(replies)
+      setReplyDrafts(replyDraftList)
       setTeamDecisions(decisions)
       setSelectedEmailAccountId((currentAccountId) => {
         const isCurrentAvailable = accounts.some(
@@ -210,6 +227,7 @@ export function CampaignsPage() {
       setEmailDrafts([])
       setSentEmails([])
       setCampaignReplies([])
+      setReplyDrafts([])
       setTeamDecisions([])
     }
   }, [loadCampaignDetail, selectedCampaignId])
@@ -374,17 +392,26 @@ export function CampaignsPage() {
   async function reloadReplies(campaignId = selectedCampaignId) {
     if (!campaignId) return
 
-    const [sentEmailList, replies, replyStatus, decisions] = await Promise.all([
+    const [sentEmailList, replies, replyStatus, replyDraftList, decisions] = await Promise.all([
       getCampaignSentEmails(campaignId),
       getCampaignReplies(campaignId),
       getReplyMonitoringStatus(),
+      getCampaignReplyDrafts(campaignId),
       getCampaignTeamDecisions(campaignId),
     ])
 
     setSentEmails(sentEmailList)
     setCampaignReplies(replies)
     setReplyMonitoringStatus(replyStatus)
+    setReplyDrafts(replyDraftList)
     setTeamDecisions(decisions)
+  }
+
+  async function reloadReplyDrafts(campaignId = selectedCampaignId) {
+    if (!campaignId) return
+
+    const drafts = await getCampaignReplyDrafts(campaignId)
+    setReplyDrafts(drafts)
   }
 
   async function reloadTeamDecisions(campaignId = selectedCampaignId) {
@@ -563,6 +590,124 @@ export function CampaignsPage() {
     }
   }
 
+  function handleSelectReplyDraft(draft) {
+    setSelectedReplyDraftId(draft.id)
+    setReplyDraftForm({
+      subject: draft.subject || '',
+      body: draft.body || '',
+      rejectedReason: draft.rejectedReason || '',
+    })
+  }
+
+  function resetReplyDraftForm() {
+    setSelectedReplyDraftId('')
+    setReplyDraftForm(defaultReplyDraftForm)
+  }
+
+  async function handleSaveReplyDraft(event) {
+    event.preventDefault()
+    if (!selectedReplyDraftId) return
+
+    setIsReplyDraftSaving(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      await updateEmailDraft(selectedReplyDraftId, {
+        subject: replyDraftForm.subject,
+        body: replyDraftForm.body,
+      })
+      setSuccess('Reply draft updated. No email was sent.')
+      resetReplyDraftForm()
+      await reloadReplyDrafts(selectedCampaignId)
+    } catch (draftError) {
+      setError(draftError.message)
+    } finally {
+      setIsReplyDraftSaving(false)
+    }
+  }
+
+  async function handleSubmitReplyDraft(draftId) {
+    if (!draftId) return
+
+    setActiveReplyDraftId(draftId)
+    setError('')
+    setSuccess('')
+
+    try {
+      await submitEmailDraftForApproval(draftId)
+      setSuccess('Reply draft submitted for approval. No email was sent.')
+      await reloadReplyDrafts(selectedCampaignId)
+    } catch (draftError) {
+      setError(draftError.message)
+    } finally {
+      setActiveReplyDraftId('')
+    }
+  }
+
+  async function handleApproveReplyDraft(draftId) {
+    if (!draftId) return
+
+    setActiveReplyDraftId(draftId)
+    setError('')
+    setSuccess('')
+
+    try {
+      await approveEmailDraft(draftId)
+      setSuccess('Reply draft approved. No email was sent.')
+      await reloadReplyDrafts(selectedCampaignId)
+    } catch (draftError) {
+      setError(draftError.message)
+    } finally {
+      setActiveReplyDraftId('')
+    }
+  }
+
+  async function handleRejectReplyDraft(draftId, reason) {
+    if (!draftId) return
+
+    setActiveReplyDraftId(draftId)
+    setError('')
+    setSuccess('')
+
+    try {
+      await rejectEmailDraft(draftId, reason)
+      setSuccess('Reply draft rejected. No email was sent.')
+      if (selectedReplyDraftId === draftId) resetReplyDraftForm()
+      await reloadReplyDrafts(selectedCampaignId)
+    } catch (draftError) {
+      setError(draftError.message)
+    } finally {
+      setActiveReplyDraftId('')
+    }
+  }
+
+  async function handleSendReplyDraft(draftId) {
+    if (!draftId) return
+
+    setActiveReplyDraftId(draftId)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await sendReplyDraft(draftId, selectedEmailAccountId)
+      setSuccess(
+        result.sendMode === 'live'
+          ? `Live Gmail reply sent. Message ID: ${result.sentEmail.messageId}.`
+          : `Mock reply sent. Message ID: ${result.sentEmail.messageId}.`,
+      )
+      resetReplyDraftForm()
+      await Promise.all([
+        reloadReplyDrafts(selectedCampaignId),
+        reloadEmailSending(selectedCampaignId),
+      ])
+    } catch (sendError) {
+      setError(sendError.message)
+    } finally {
+      setActiveReplyDraftId('')
+    }
+  }
+
   async function handleCompleteTeamDecision(decisionId, decisionType) {
     if (!decisionId) return
 
@@ -580,6 +725,7 @@ export function CampaignsPage() {
       await Promise.all([
         reloadTeamDecisions(selectedCampaignId),
         reloadEmailDrafts(selectedCampaignId),
+        reloadReplyDrafts(selectedCampaignId),
         reloadReplies(selectedCampaignId),
         loadCampaignDetail(selectedCampaignId),
       ])
@@ -662,6 +808,7 @@ export function CampaignsPage() {
           isDetailLoading={isDetailLoading}
           isEmailSending={isEmailSending}
           isReplyChecking={isReplyChecking}
+          isReplyDraftSaving={isReplyDraftSaving}
           isGhlLoading={isGhlLoading}
           isGhlSyncing={isGhlSyncing}
           isDraftSaving={isDraftSaving}
@@ -673,11 +820,15 @@ export function CampaignsPage() {
           selectedLeadIds={selectedLeadIds}
           sentEmails={sentEmails}
           campaignReplies={campaignReplies}
+          replyDrafts={replyDrafts}
+          replyDraftForm={replyDraftForm}
           teamDecisions={teamDecisions}
           checkingSentEmailId={checkingSentEmailId}
           activeDecisionId={activeDecisionId}
+          activeReplyDraftId={activeReplyDraftId}
           lastReplyCheckSummary={lastReplyCheckSummary}
           replyMonitoringStatus={replyMonitoringStatus}
+          selectedReplyDraftId={selectedReplyDraftId}
           onAttach={handleAttachLeads}
           onGhlRefresh={() => reloadGhlStatus()}
           onGhlRetryFailed={handleRetryFailedGhlSync}
@@ -695,6 +846,14 @@ export function CampaignsPage() {
           onCheckSentEmailReplies={handleCheckSentEmailReplies}
           onCompleteTeamDecision={handleCompleteTeamDecision}
           onCancelTeamDecision={handleCancelTeamDecision}
+          onReplyDraftApprove={handleApproveReplyDraft}
+          onReplyDraftChange={setReplyDraftForm}
+          onReplyDraftReject={handleRejectReplyDraft}
+          onReplyDraftReset={resetReplyDraftForm}
+          onReplyDraftSave={handleSaveReplyDraft}
+          onReplyDraftSelect={handleSelectReplyDraft}
+          onReplyDraftSend={handleSendReplyDraft}
+          onReplyDraftSubmit={handleSubmitReplyDraft}
           onLeadSelection={setSelectedLeadIds}
           onStatusUpdate={handleStatusUpdate}
         />
@@ -874,6 +1033,7 @@ function CampaignDetailCard({
   isDetailLoading,
   isEmailSending,
   isReplyChecking,
+  isReplyDraftSaving,
   isGhlLoading,
   isGhlSyncing,
   isDraftSaving,
@@ -883,11 +1043,15 @@ function CampaignDetailCard({
   selectedDraftId,
   sentEmails,
   campaignReplies,
+  replyDrafts,
+  replyDraftForm,
   teamDecisions,
   checkingSentEmailId,
   activeDecisionId,
+  activeReplyDraftId,
   lastReplyCheckSummary,
   replyMonitoringStatus,
+  selectedReplyDraftId,
   onAttach,
   onGhlRefresh,
   onGhlRetryFailed,
@@ -906,6 +1070,14 @@ function CampaignDetailCard({
   onCheckSentEmailReplies,
   onCompleteTeamDecision,
   onCancelTeamDecision,
+  onReplyDraftApprove,
+  onReplyDraftChange,
+  onReplyDraftReject,
+  onReplyDraftReset,
+  onReplyDraftSave,
+  onReplyDraftSelect,
+  onReplyDraftSend,
+  onReplyDraftSubmit,
   onStatusUpdate,
 }) {
   if (isDetailLoading) {
@@ -1019,6 +1191,25 @@ function CampaignDetailCard({
           decisions={teamDecisions}
           onCancel={onCancelTeamDecision}
           onComplete={onCompleteTeamDecision}
+        />
+
+        <ReplyDraftsPanel
+          activeReplyDraftId={activeReplyDraftId}
+          emailAccounts={emailAccounts}
+          emailSendingStatus={emailSendingStatus}
+          form={replyDraftForm}
+          isSaving={isReplyDraftSaving}
+          replyDrafts={replyDrafts}
+          selectedDraftId={selectedReplyDraftId}
+          selectedEmailAccountId={selectedEmailAccountId}
+          onApprove={onReplyDraftApprove}
+          onChange={onReplyDraftChange}
+          onReject={onReplyDraftReject}
+          onReset={onReplyDraftReset}
+          onSave={onReplyDraftSave}
+          onSelect={onReplyDraftSelect}
+          onSend={onReplyDraftSend}
+          onSubmitForApproval={onReplyDraftSubmit}
         />
 
         <CampaignLeadsTable campaignLeads={campaignLeads} />
@@ -1406,6 +1597,7 @@ function EmailDraftsTable({ emailDrafts, onApprove, onReject, onSelect }) {
                       className="inline-flex min-h-9 items-center justify-center rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-100"
                       type="button"
                       onClick={() => onReject(draft.id, draft.rejectedReason || '')}
+                      disabled={!['pending_approval', 'approved'].includes(draft.status)}
                     >
                       Reject
                     </button>
@@ -1874,6 +2066,292 @@ function AttachLeadsPanel({
   )
 }
 
+function ReplyDraftsPanel({
+  activeReplyDraftId,
+  emailAccounts,
+  emailSendingStatus,
+  form,
+  isSaving,
+  replyDrafts,
+  selectedDraftId,
+  selectedEmailAccountId,
+  onApprove,
+  onChange,
+  onReject,
+  onReset,
+  onSave,
+  onSelect,
+  onSend,
+  onSubmitForApproval,
+}) {
+  const summary = {
+    saved: replyDrafts.filter((draft) => draft.status === 'saved').length,
+    pendingApproval: replyDrafts.filter((draft) => draft.status === 'pending_approval').length,
+    approved: replyDrafts.filter((draft) => draft.status === 'approved').length,
+    rejected: replyDrafts.filter((draft) => draft.status === 'rejected').length,
+    sent: replyDrafts.filter((draft) => draft.status === 'sent').length,
+  }
+  const selectedDraft = replyDrafts.find((draft) => draft.id === selectedDraftId)
+  const canEditSelected = ['saved', 'rejected'].includes(selectedDraft?.status)
+  const isLiveMode = emailSendingStatus?.mode === 'live'
+  const selectedAccount = emailAccounts.find((account) => account.id === selectedEmailAccountId)
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Reply Drafts</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Reply drafts are manual. Nothing is sent until an approved draft is sent by the team.
+          </p>
+        </div>
+        <MessageSquareReply className="h-5 w-5 text-primary" aria-hidden="true" />
+      </div>
+
+      <div
+        className={cn(
+          'mt-4 rounded-md border px-3 py-3 text-sm',
+          isLiveMode
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+            : 'border-amber-200 bg-amber-50 text-amber-800',
+        )}
+      >
+        {isLiveMode
+          ? 'Live Gmail send. Reply sends are still manual and require the Send reply action.'
+          : 'Mock send only. Reply sends create mock sent-email records and do not send real email.'}
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <InfoTile label="Saved" value={summary.saved} />
+        <InfoTile label="Pending approval" value={summary.pendingApproval} />
+        <InfoTile label="Approved" value={summary.approved} />
+        <InfoTile label="Rejected" value={summary.rejected} />
+        <InfoTile label="Sent" value={summary.sent} />
+      </div>
+
+      {selectedDraft ? (
+        <form className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4" onSubmit={onSave}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h4 className="text-sm font-semibold text-slate-950">
+                {canEditSelected ? 'Edit Reply Draft' : 'Reply Draft Review'}
+              </h4>
+              <p className="mt-1 text-sm text-slate-500">
+                {selectedDraft.lead?.name || selectedDraft.lead?.email || 'Unnamed lead'}
+              </p>
+            </div>
+            <DraftStatusBadge status={selectedDraft.status} />
+          </div>
+
+          <div className="mt-4">
+            <label className="text-sm font-medium text-slate-700" htmlFor="reply-draft-subject">
+              Subject
+            </label>
+            <input
+              className="mt-1 min-h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-slate-100"
+              id="reply-draft-subject"
+              value={form.subject}
+              onChange={(event) => onChange({ ...form, subject: event.target.value })}
+              disabled={!canEditSelected}
+            />
+          </div>
+
+          <div className="mt-4">
+            <label className="text-sm font-medium text-slate-700" htmlFor="reply-draft-body">
+              Body
+            </label>
+            <textarea
+              className="mt-1 min-h-44 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-slate-100"
+              id="reply-draft-body"
+              value={form.body}
+              onChange={(event) => onChange({ ...form, body: event.target.value })}
+              disabled={!canEditSelected}
+            />
+          </div>
+
+          <div className="mt-4">
+            <label className="text-sm font-medium text-slate-700" htmlFor="reply-reject-reason">
+              Rejection reason
+            </label>
+            <input
+              className="mt-1 min-h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              id="reply-reject-reason"
+              value={form.rejectedReason}
+              onChange={(event) => onChange({ ...form, rejectedReason: event.target.value })}
+              placeholder="Optional reason when rejecting"
+            />
+          </div>
+
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <button
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
+              type="submit"
+              disabled={!canEditSelected || isSaving}
+            >
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <FileText className="h-4 w-4" aria-hidden="true" />
+              )}
+              Save
+            </button>
+            <button
+              className="inline-flex min-h-10 items-center justify-center rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+              type="button"
+              onClick={onReset}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+        Manual sending uses the original sending account when available. Fallback account:{' '}
+        {selectedAccount?.emailAddress || 'none selected'}.
+      </div>
+
+      <ReplyDraftsTable
+        activeReplyDraftId={activeReplyDraftId}
+        form={form}
+        replyDrafts={replyDrafts}
+        selectedDraftId={selectedDraftId}
+        onApprove={onApprove}
+        onReject={onReject}
+        onSelect={onSelect}
+        onSend={onSend}
+        onSubmitForApproval={onSubmitForApproval}
+      />
+    </div>
+  )
+}
+
+function ReplyDraftsTable({
+  activeReplyDraftId,
+  form,
+  replyDrafts,
+  selectedDraftId,
+  onApprove,
+  onReject,
+  onSelect,
+  onSend,
+  onSubmitForApproval,
+}) {
+  if (!replyDrafts.length) {
+    return (
+      <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
+        No reply drafts have been created for this campaign.
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Lead name</th>
+              <th className="px-4 py-3">Lead email</th>
+              <th className="px-4 py-3">Subject</th>
+              <th className="px-4 py-3">Draft type</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Created</th>
+              <th className="px-4 py-3">Updated</th>
+              <th className="px-4 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {replyDrafts.map((draft) => {
+              const isWorking = activeReplyDraftId === draft.id
+              const canEdit = ['saved', 'rejected'].includes(draft.status)
+              const canSubmit = ['saved', 'rejected'].includes(draft.status)
+              const canApprove = ['saved', 'pending_approval'].includes(draft.status)
+              const canReject = ['pending_approval', 'approved'].includes(draft.status)
+              const canSend = draft.status === 'approved'
+              const rejectReason = selectedDraftId === draft.id ? form.rejectedReason : ''
+
+              return (
+                <tr key={draft.id} className="align-top">
+                  <td className="min-w-48 px-4 py-3 font-medium text-slate-950">
+                    {draft.lead?.name || draft.lead?.email || 'Unnamed lead'}
+                  </td>
+                  <td className="min-w-56 px-4 py-3 text-slate-700">
+                    {draft.lead?.email || '-'}
+                  </td>
+                  <td className="min-w-64 px-4 py-3 text-slate-700">{draft.subject || '-'}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                    {draft.draftType}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <DraftStatusBadge status={draft.status} />
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                    {formatDate(draft.createdAt)}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                    {formatDate(draft.updatedAt)}
+                  </td>
+                  <td className="min-w-[28rem] px-4 py-3">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        type="button"
+                        onClick={() => onSelect(draft)}
+                        disabled={!canEdit && draft.status === 'sent'}
+                      >
+                        <Edit3 className="h-3.5 w-3.5" aria-hidden="true" />
+                        {canEdit ? 'Edit' : 'View'}
+                      </button>
+                      <button
+                        className="inline-flex min-h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        type="button"
+                        onClick={() => onSubmitForApproval(draft.id)}
+                        disabled={!canSubmit || isWorking}
+                      >
+                        Submit for approval
+                      </button>
+                      <button
+                        className="inline-flex min-h-9 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        type="button"
+                        onClick={() => onApprove(draft.id)}
+                        disabled={!canApprove || isWorking}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        className="inline-flex min-h-9 items-center justify-center rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        type="button"
+                        onClick={() => onReject(draft.id, rejectReason)}
+                        disabled={!canReject || isWorking}
+                      >
+                        Reject
+                      </button>
+                      <button
+                        className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                        type="button"
+                        onClick={() => onSend(draft.id)}
+                        disabled={!canSend || isWorking}
+                      >
+                        {isWorking ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                        ) : (
+                          <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                        )}
+                        Send reply
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 const decisionActions = [
   ['stop_outreach', 'Stop outreach'],
   ['manual_handling', 'Manual handling'],
@@ -2076,6 +2554,7 @@ function DraftStatusBadge({ status }) {
   const variants = {
     approved: 'success',
     draft: 'warning',
+    pending_approval: 'warning',
     rejected: 'destructive',
     saved: 'secondary',
     sent: 'success',

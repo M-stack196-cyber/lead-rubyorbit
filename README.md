@@ -28,6 +28,8 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 - Phase 9 completed: Gmail OAuth connection test passed for `incdatamart@gmail.com`.
 - Phase 10 completed: real Gmail live send test passed; keep `EMAIL_SEND_MODE=mock` unless explicitly testing live sends.
 - Phase 11 completed: Gmail reply monitoring foundation with manual Gmail readonly checks and campaign reply display.
+- Phase 12 completed: team decision system after reply detection.
+- Phase 13 completed: reply draft handling and manual reply workflow.
 
 ## Phase 0 Scope
 
@@ -166,6 +168,20 @@ GOOGLE_OAUTH_SCOPES="https://www.googleapis.com/auth/gmail.send https://www.goog
 
 Security note: Gmail tokens stay backend-only and are never returned in API responses. The current placeholder token storage should be upgraded to production encryption/KMS before deployment. Do not commit `backend/.env`.
 
+## Phase 13 Scope
+
+Phase 13 adds manual reply draft handling only:
+
+- Reply draft listing by workspace, campaign, and reply
+- Reply draft lifecycle: `saved`, `pending_approval`, `approved`, `rejected`, and `sent`
+- Saved and rejected reply drafts can be edited
+- Reply drafts can be submitted for approval, approved, rejected with a reason, and sent manually
+- Approved reply drafts can be sent through the existing sending foundation
+- `EMAIL_SEND_MODE=mock` creates mock sent-email records and prevents real email sending
+- Live sending remains a manual action and uses Gmail only when `EMAIL_SEND_MODE=live` and a connected enabled Gmail account is available
+
+Phase 13 does not add automatic reply generation, automatic follow-up sending, schedulers, or cron workers. Sending is manual only.
+
 ## API Endpoints
 
 ### Health
@@ -187,6 +203,7 @@ Security note: Gmail tokens stay backend-only and are never returned in API resp
 - `POST /api/campaigns/:id/leads`
 - `GET /api/campaigns/:id/leads`
 - `GET /api/campaigns/:campaignId/email-drafts`
+- `GET /api/campaigns/:campaignId/reply-drafts`
 
 ### Leads
 
@@ -205,8 +222,11 @@ Security note: Gmail tokens stay backend-only and are never returned in API resp
 - `POST /api/email-drafts`
 - `GET /api/email-drafts/:id`
 - `PATCH /api/email-drafts/:id`
+- `GET /api/email-drafts/reply-drafts`
+- `POST /api/email-drafts/:id/submit-for-approval`
 - `POST /api/email-drafts/:id/approve`
 - `POST /api/email-drafts/:id/reject`
+- `POST /api/email-drafts/:id/send-reply`
 
 ### Email Accounts
 
@@ -239,6 +259,7 @@ Security note: Gmail tokens stay backend-only and are never returned in API resp
 - `POST /api/reply-monitoring/check-campaign/:campaignId`
 - `GET /api/reply-monitoring/campaigns/:campaignId/replies`
 - `GET /api/reply-monitoring/sent-emails/:sentEmailId/replies`
+- `GET /api/replies/:replyId/reply-drafts`
 
 ## Frontend
 
@@ -272,6 +293,8 @@ backend/db/migrations/004_email_account_fields.sql
 backend/db/migrations/005_sent_email_fields.sql
 backend/db/migrations/006_gmail_oauth_fields.sql
 backend/db/migrations/007_reply_monitoring_fields.sql
+backend/db/migrations/008_team_decision_fields.sql
+backend/db/migrations/009_reply_draft_workflow_fields.sql
 ```
 
 Apply these SQL migrations in a Supabase PostgreSQL project when you are ready to create or update the schema. Do not commit real `.env` files or secrets.

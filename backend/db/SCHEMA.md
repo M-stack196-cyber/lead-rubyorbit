@@ -12,6 +12,7 @@ Phase 1 adds the Supabase PostgreSQL schema foundation for LeadRubyOrbit. Later 
 - Phase 8 Gmail OAuth token metadata on `email_accounts`
 - Phase 11 Gmail reply monitoring fields on `replies`
 - Phase 12 team decision fields on `team_decisions`
+- Phase 13 reply draft workflow fields on `email_drafts`
 - Status check constraints for important workflow fields
 - Foreign key relationships between workflow entities
 - Useful lookup indexes
@@ -49,7 +50,7 @@ Stores email account configuration placeholders. Phase 6 account providers are `
 
 ### email_drafts
 
-Stores draft email content and approval state. Draft types are `primary`, `follow_up`, `reply`, and `manual` for new app flows, with legacy `followup` still accepted by the database constraint. Draft statuses used by Phase 5 are `draft`, `saved`, `approved`, and `rejected`; the existing `sent` status remains reserved for later sending phases. Phase 5 stores optional `rejected_reason` and does not send emails.
+Stores draft email content and approval state. Draft types are `primary`, `follow_up`, `reply`, and `manual` for new app flows, with legacy `followup` still accepted by the database constraint. Draft statuses include `draft`, `saved`, `pending_approval`, `approved`, `rejected`, and `sent`. Phase 13 links reply drafts to `reply_id`, the original `sent_email_id`, and the sent reply record through `sent_email_id_after_send`. Phase 13 reply sending is manual only and respects `EMAIL_SEND_MODE`.
 
 ### sent_emails
 
