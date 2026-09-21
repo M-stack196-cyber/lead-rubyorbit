@@ -6,9 +6,11 @@ import {
   Edit3,
   FileText,
   Loader2,
+  MailCheck,
   Megaphone,
   RefreshCcw,
   RotateCcw,
+  Send,
   SendToBack,
   UserPlus,
   XCircle,
@@ -25,11 +27,16 @@ import {
   getCampaignEmailDrafts,
   getCampaignGhlSyncStatus,
   getCampaignLeads,
+  getCampaignSentEmails,
   getCampaigns,
+  getEmailAccounts,
+  getEmailSendingStatus,
   getGhlSettingsStatus,
   getLeads,
   rejectEmailDraft,
   retryFailedGhlSync,
+  sendCampaignEmails,
+  sendEmailDraft,
   syncCampaignToGhl,
   updateCampaign,
   updateEmailDraft,
@@ -65,6 +72,10 @@ export function CampaignsPage() {
   const [selectedCampaign, setSelectedCampaign] = useState(null)
   const [campaignLeads, setCampaignLeads] = useState([])
   const [emailDrafts, setEmailDrafts] = useState([])
+  const [emailAccounts, setEmailAccounts] = useState([])
+  const [emailSendingStatus, setEmailSendingStatus] = useState(null)
+  const [sentEmails, setSentEmails] = useState([])
+  const [selectedEmailAccountId, setSelectedEmailAccountId] = useState('')
   const [selectedDraftId, setSelectedDraftId] = useState('')
   const [draftForm, setDraftForm] = useState(defaultDraftForm)
   const [ghlSettings, setGhlSettings] = useState(null)
@@ -77,6 +88,7 @@ export function CampaignsPage() {
   const [isGhlLoading, setIsGhlLoading] = useState(false)
   const [isGhlSyncing, setIsGhlSyncing] = useState(false)
   const [isDraftSaving, setIsDraftSaving] = useState(false)
+  const [isEmailSending, setIsEmailSending] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isAttaching, setIsAttaching] = useState(false)
   const [error, setError] = useState('')
@@ -114,18 +126,37 @@ export function CampaignsPage() {
     setError('')
 
     try {
-      const [campaign, leads, settings, syncStatus, drafts] = await Promise.all([
-        getCampaignById(campaignId),
-        getCampaignLeads(campaignId),
-        getGhlSettingsStatus(),
-        getCampaignGhlSyncStatus(campaignId),
-        getCampaignEmailDrafts(campaignId),
-      ])
+      const [campaign, leads, settings, syncStatus, drafts, sendStatus, sentEmailList, accounts] =
+        await Promise.all([
+          getCampaignById(campaignId),
+          getCampaignLeads(campaignId),
+          getGhlSettingsStatus(),
+          getCampaignGhlSyncStatus(campaignId),
+          getCampaignEmailDrafts(campaignId),
+          getEmailSendingStatus(),
+          getCampaignSentEmails(campaignId),
+          getEmailAccounts(),
+        ])
       setSelectedCampaign(campaign)
       setCampaignLeads(leads)
       setGhlSettings(settings)
       setGhlSyncStatus(syncStatus)
       setEmailDrafts(drafts)
+      setEmailSendingStatus(sendStatus)
+      setSentEmails(sentEmailList)
+      setEmailAccounts(accounts)
+      setSelectedEmailAccountId((currentAccountId) => {
+        const isCurrentAvailable = accounts.some(
+          (account) =>
+            account.id === currentAccountId && account.isEnabled && account.status === 'active',
+        )
+
+        if (isCurrentAvailable) return currentAccountId
+
+        return (
+          accounts.find((account) => account.isEnabled && account.status === 'active')?.id || ''
+        )
+      })
       setSelectedLeadIds([])
     } catch (loadError) {
       setError(loadError.message)
@@ -144,6 +175,8 @@ export function CampaignsPage() {
     } else {
       setSelectedCampaign(null)
       setCampaignLeads([])
+      setEmailDrafts([])
+      setSentEmails([])
     }
   }, [loadCampaignDetail, selectedCampaignId])
 
@@ -290,6 +323,20 @@ export function CampaignsPage() {
     setEmailDrafts(drafts)
   }
 
+  async function reloadEmailSending(campaignId = selectedCampaignId) {
+    if (!campaignId) return
+
+    const [sendStatus, sentEmailList, accounts] = await Promise.all([
+      getEmailSendingStatus(),
+      getCampaignSentEmails(campaignId),
+      getEmailAccounts(),
+    ])
+
+    setEmailSendingStatus(sendStatus)
+    setSentEmails(sentEmailList)
+    setEmailAccounts(accounts)
+  }
+
   async function handleSaveDraft(event) {
     event.preventDefault()
     if (!selectedCampaignId) return
@@ -308,7 +355,7 @@ export function CampaignsPage() {
           body: draftForm.body,
           status: 'saved',
         })
-        setSuccess('Email draft updated. Emails are not sent in this phase.')
+        setSuccess('Email draft updated.')
       } else {
         await createEmailDraft({
           campaignId: selectedCampaignId,
@@ -318,7 +365,7 @@ export function CampaignsPage() {
           subject: draftForm.subject,
           body: draftForm.body,
         })
-        setSuccess('Email draft saved. Emails are not sent in this phase.')
+        setSuccess('Email draft saved.')
       }
 
       resetDraftForm()
@@ -365,6 +412,50 @@ export function CampaignsPage() {
       setError(draftError.message)
     } finally {
       setIsDraftSaving(false)
+    }
+  }
+
+  async function handleSendDraft(draftId) {
+    if (!draftId || !selectedEmailAccountId) return
+
+    setIsEmailSending(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const sentEmail = await sendEmailDraft(draftId, selectedEmailAccountId)
+      setSuccess(`Mock email sent. Message ID: ${sentEmail.messageId}.`)
+      await Promise.all([
+        reloadEmailDrafts(selectedCampaignId),
+        reloadEmailSending(selectedCampaignId),
+      ])
+    } catch (sendError) {
+      setError(sendError.message)
+    } finally {
+      setIsEmailSending(false)
+    }
+  }
+
+  async function handleSendCampaignEmails() {
+    if (!selectedCampaignId || !selectedEmailAccountId) return
+
+    setIsEmailSending(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await sendCampaignEmails(selectedCampaignId, selectedEmailAccountId)
+      setSuccess(
+        `Mock campaign send complete: ${result.sent} sent, ${result.skipped} skipped, ${result.blocked} blocked, ${result.failed} failed.`,
+      )
+      await Promise.all([
+        reloadEmailDrafts(selectedCampaignId),
+        reloadEmailSending(selectedCampaignId),
+      ])
+    } catch (sendError) {
+      setError(sendError.message)
+    } finally {
+      setIsEmailSending(false)
     }
   }
 
@@ -416,8 +507,11 @@ export function CampaignsPage() {
           campaignLeads={campaignLeads}
           draftForm={draftForm}
           emailDrafts={emailDrafts}
+          emailAccounts={emailAccounts}
+          emailSendingStatus={emailSendingStatus}
           isAttaching={isAttaching}
           isDetailLoading={isDetailLoading}
+          isEmailSending={isEmailSending}
           isGhlLoading={isGhlLoading}
           isGhlSyncing={isGhlSyncing}
           isDraftSaving={isDraftSaving}
@@ -425,7 +519,9 @@ export function CampaignsPage() {
           ghlSettings={ghlSettings}
           ghlSyncStatus={ghlSyncStatus}
           selectedDraftId={selectedDraftId}
+          selectedEmailAccountId={selectedEmailAccountId}
           selectedLeadIds={selectedLeadIds}
+          sentEmails={sentEmails}
           onAttach={handleAttachLeads}
           onGhlRefresh={() => reloadGhlStatus()}
           onGhlRetryFailed={handleRetryFailedGhlSync}
@@ -436,6 +532,9 @@ export function CampaignsPage() {
           onDraftReset={resetDraftForm}
           onDraftSave={handleSaveDraft}
           onDraftSelect={handleSelectDraft}
+          onEmailAccountChange={setSelectedEmailAccountId}
+          onSendCampaignEmails={handleSendCampaignEmails}
+          onSendDraft={handleSendDraft}
           onLeadSelection={setSelectedLeadIds}
           onStatusUpdate={handleStatusUpdate}
         />
@@ -606,17 +705,22 @@ function CampaignDetailCard({
   campaign,
   campaignLeads,
   draftForm,
+  emailAccounts,
   emailDrafts,
+  emailSendingStatus,
   ghlSettings,
   ghlSyncStatus,
   isAttaching,
   isDetailLoading,
+  isEmailSending,
   isGhlLoading,
   isGhlSyncing,
   isDraftSaving,
   isSaving,
+  selectedEmailAccountId,
   selectedLeadIds,
   selectedDraftId,
+  sentEmails,
   onAttach,
   onGhlRefresh,
   onGhlRetryFailed,
@@ -627,7 +731,10 @@ function CampaignDetailCard({
   onDraftReset,
   onDraftSave,
   onDraftSelect,
+  onEmailAccountChange,
   onLeadSelection,
+  onSendCampaignEmails,
+  onSendDraft,
   onStatusUpdate,
 }) {
   if (isDetailLoading) {
@@ -711,6 +818,18 @@ function CampaignDetailCard({
           onReset={onDraftReset}
           onSave={onDraftSave}
           onSelect={onDraftSelect}
+        />
+
+        <EmailSendingPanel
+          emailAccounts={emailAccounts}
+          emailDrafts={emailDrafts}
+          emailSendingStatus={emailSendingStatus}
+          isEmailSending={isEmailSending}
+          selectedEmailAccountId={selectedEmailAccountId}
+          sentEmails={sentEmails}
+          onAccountChange={onEmailAccountChange}
+          onSendCampaign={onSendCampaignEmails}
+          onSendDraft={onSendDraft}
         />
 
         <CampaignLeadsTable campaignLeads={campaignLeads} />
@@ -1112,6 +1231,199 @@ function EmailDraftsTable({ emailDrafts, onApprove, onReject, onSelect }) {
   )
 }
 
+function EmailSendingPanel({
+  emailAccounts,
+  emailDrafts,
+  emailSendingStatus,
+  isEmailSending,
+  selectedEmailAccountId,
+  sentEmails,
+  onAccountChange,
+  onSendCampaign,
+  onSendDraft,
+}) {
+  const activeAccounts = emailAccounts.filter(
+    (account) => account.isEnabled && account.status === 'active',
+  )
+  const approvedDrafts = emailDrafts.filter((draft) => draft.status === 'approved')
+  const hasActiveAccount = Boolean(selectedEmailAccountId)
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Send Approved Emails</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Mock sending only. Emails are not sent outside LeadRubyOrbit in this phase.
+          </p>
+        </div>
+        <MailCheck className="h-5 w-5 text-primary" aria-hidden="true" />
+      </div>
+
+      <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+        {emailSendingStatus?.message || 'Mock sending mode active. No real emails are sent.'}
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <InfoTile label="Mode" value={emailSendingStatus?.mode || 'mock'} />
+        <InfoTile label="Approved drafts" value={approvedDrafts.length} />
+        <InfoTile label="Sent emails" value={sentEmails.length} />
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div>
+          <label className="text-sm font-medium text-slate-700" htmlFor="email-send-account">
+            Sending account
+          </label>
+          <select
+            className="mt-1 min-h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+            id="email-send-account"
+            value={selectedEmailAccountId}
+            onChange={(event) => onAccountChange(event.target.value)}
+          >
+            <option value="">Select an active account</option>
+            {activeAccounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.accountName || account.emailAddress} - {account.sentToday || 0}/
+                {account.dailySendLimit} today
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <button
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          onClick={onSendCampaign}
+          disabled={!hasActiveAccount || !approvedDrafts.length || isEmailSending}
+        >
+          {isEmailSending ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Send className="h-4 w-4" aria-hidden="true" />
+          )}
+          Send All Approved
+        </button>
+      </div>
+
+      <ApprovedDraftSendTable
+        approvedDrafts={approvedDrafts}
+        hasActiveAccount={hasActiveAccount}
+        isEmailSending={isEmailSending}
+        onSendDraft={onSendDraft}
+      />
+
+      <SentEmailsTable sentEmails={sentEmails} />
+    </div>
+  )
+}
+
+function ApprovedDraftSendTable({ approvedDrafts, hasActiveAccount, isEmailSending, onSendDraft }) {
+  if (!approvedDrafts.length) {
+    return (
+      <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
+        No approved drafts are ready for mock sending.
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Approved Draft</th>
+              <th className="px-4 py-3">Lead</th>
+              <th className="px-4 py-3">Type</th>
+              <th className="px-4 py-3">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {approvedDrafts.map((draft) => (
+              <tr key={draft.id} className="align-top">
+                <td className="min-w-56 px-4 py-3 text-slate-700">{draft.subject}</td>
+                <td className="min-w-52 px-4 py-3">
+                  <p className="font-medium text-slate-950">
+                    {draft.lead?.name || draft.lead?.email || 'Unnamed lead'}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">{draft.lead?.email || 'No email'}</p>
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  {draft.draftType}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <button
+                    className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    type="button"
+                    onClick={() => onSendDraft(draft.id)}
+                    disabled={!hasActiveAccount || isEmailSending}
+                  >
+                    <Send className="h-3.5 w-3.5" aria-hidden="true" />
+                    Send Mock
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function SentEmailsTable({ sentEmails }) {
+  if (!sentEmails.length) {
+    return (
+      <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
+        No mock sent emails yet.
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Lead</th>
+              <th className="px-4 py-3">Subject</th>
+              <th className="px-4 py-3">Account</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Message ID</th>
+              <th className="px-4 py-3">Sent</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {sentEmails.map((email) => (
+              <tr key={email.id} className="align-top">
+                <td className="min-w-52 px-4 py-3">
+                  <p className="font-medium text-slate-950">
+                    {email.lead?.name || email.toEmail || 'Unnamed lead'}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">{email.lead?.email || email.toEmail}</p>
+                </td>
+                <td className="min-w-56 px-4 py-3 text-slate-700">{email.subject}</td>
+                <td className="min-w-48 px-4 py-3 text-slate-700">
+                  {email.emailAccount?.emailAddress || email.fromEmail || '-'}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <SyncBadge status={email.status} />
+                </td>
+                <td className="min-w-72 px-4 py-3 text-slate-700">{email.messageId || '-'}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  {formatDate(email.sentAt)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function AttachLeadsPanel({
   attachableLeads,
   isAttaching,
@@ -1251,6 +1563,7 @@ function DraftStatusBadge({ status }) {
     draft: 'warning',
     rejected: 'destructive',
     saved: 'secondary',
+    sent: 'success',
   }
 
   return <Badge variant={variants[status] || 'secondary'}>{status || 'draft'}</Badge>

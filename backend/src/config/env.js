@@ -18,5 +18,8 @@ export const env = {
     workflowId: process.env.GHL_WORKFLOW_ID || '',
     apiBaseUrl: process.env.GHL_API_BASE_URL || 'https://services.leadconnectorhq.com',
   },
+  emailSend: {
+    mode: process.env.EMAIL_SEND_MODE || 'mock',
+  },
   databaseUrl: process.env.DATABASE_URL || '',
 }

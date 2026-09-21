@@ -279,3 +279,43 @@ export async function archiveEmailAccount(accountId) {
   const payload = await parseApiResponse(response)
   return payload.data
 }
+
+export async function getEmailSendingStatus() {
+  const response = await fetch(`${API_BASE_URL}/api/email-sending/status`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function sendEmailDraft(draftId, emailAccountId) {
+  const response = await fetch(`${API_BASE_URL}/api/email-sending/send-draft/${draftId}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ emailAccountId }),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function sendCampaignEmails(campaignId, emailAccountId) {
+  const response = await fetch(`${API_BASE_URL}/api/email-sending/send-campaign/${campaignId}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ emailAccountId }),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignSentEmails(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/email-sending/campaigns/${campaignId}/sent-emails`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}

@@ -23,6 +23,7 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 - Phase 4 completed: GoHighLevel integration foundation with mock-mode campaign lead sync.
 - Phase 5 completed: email draft creation foundation with manual drafting, editing, approval, and rejection.
 - Phase 6 completed: email account management foundation for future sending phases.
+- Phase 7 completed: mock approved-email sending foundation with sent email history.
 
 ## Phase 0 Scope
 
@@ -116,6 +117,28 @@ Phase 6 adds email account management only:
 
 Secrets are not exposed in API responses. Any accepted secret/password value is stored only as a placeholder for future encryption work. Phase 6 does not send emails.
 
+## Phase 7 Scope
+
+Phase 7 adds mock approved-email sending only:
+
+- Mock email sending status API
+- Send one approved draft in mock mode
+- Send all approved drafts in a campaign in mock mode
+- Sent email history backed by the existing `sent_emails` table
+- Campaign detail UI section for sending mode, active account selection, approved draft sends, bulk campaign send, and sent email history
+
+Mock sending creates `mock_msg_*` message IDs and `mock_thread_*` thread IDs, writes `sent_emails`, increments the selected email account's `sent_today`, and marks sent drafts as `sent`.
+
+Send validation requires an approved draft, a lead email, an active enabled email account, and available daily send limit. Duplicate sends for the same draft are blocked or skipped.
+
+Phase 7 does not send real emails. Real SMTP, Gmail, Outlook, OAuth, inbox integration, reply checking, follow-ups, AI draft generation, and automations are not implemented.
+
+### Email Sending Environment Variables
+
+```bash
+EMAIL_SEND_MODE=mock
+```
+
 ## API Endpoints
 
 ### Health
@@ -168,6 +191,13 @@ Secrets are not exposed in API responses. Any accepted secret/password value is 
 - `POST /api/email-accounts/:id/disable`
 - `POST /api/email-accounts/:id/archive`
 
+### Email Sending
+
+- `GET /api/email-sending/status`
+- `POST /api/email-sending/send-draft/:draftId`
+- `POST /api/email-sending/send-campaign/:campaignId`
+- `GET /api/email-sending/campaigns/:campaignId/sent-emails`
+
 ## Frontend
 
 ```bash
@@ -197,6 +227,7 @@ backend/db/migrations/001_initial_schema.sql
 backend/db/migrations/002_ghl_sync_fields.sql
 backend/db/migrations/003_email_draft_fields.sql
 backend/db/migrations/004_email_account_fields.sql
+backend/db/migrations/005_sent_email_fields.sql
 ```
 
 Apply these SQL migrations in a Supabase PostgreSQL project when you are ready to create or update the schema. Do not commit real `.env` files or secrets.
