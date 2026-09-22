@@ -39,6 +39,7 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 - Phase 20 completed: final demo preparation, handoff documentation, screenshot checklist, and project summary.
 - Phase 21 completed: staging deployment setup documentation, environment checklist, and smoke-test guide.
 - Phase 22 completed: staging deployment QA checklist, QA results template, and issue log template.
+- Phase 23 completed: production deployment planning documentation, environment checklist, and release checklist.
 
 ## Phase 0 Scope
 
@@ -410,6 +411,16 @@ Phase 22 adds staging deployment QA documentation only:
 - Issue log template at `docs/staging-issue-log-template.md`
 
 QA should run with `EMAIL_SEND_MODE=mock`. Phase 22 does not add product logic, change backend business logic, create migrations, enable real email sending, add mutating email scripts, change Gmail OAuth token logic, add schedulers, or implement AI generation.
+
+## Phase 23 Production Deployment Planning
+
+Phase 23 adds production deployment planning documentation only:
+
+- Production deployment plan at `docs/phase-23-production-deployment-plan.md`
+- Production environment checklist at `docs/production-env-checklist.md`
+- Production release checklist at `docs/production-release-checklist.md`
+
+Phase 23 does not add product logic, change backend business logic, create migrations, deploy anything, enable real email sending, add mutating email scripts, change Gmail OAuth token logic, add schedulers, or implement AI generation. `EMAIL_SEND_MODE` remains approval-gated and should stay `mock` until written production approval is recorded.
 
 ## Frontend
 
