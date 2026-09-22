@@ -35,6 +35,7 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 - Phase 16 completed: notification system for workflow visibility.
 - Phase 17 completed: dashboard and lead timeline visibility.
 - Phase 18 completed: frontend workflow polish and end-to-end QA checklist.
+- Phase 19 completed: production readiness review, deployment safety documentation, and repo/env hardening.
 
 ## Phase 0 Scope
 
@@ -311,6 +312,70 @@ Phase 18 polishes the existing frontend workflows and adds an end-to-end QA chec
 - QA checklist at `docs/phase-18-e2e-qa.md`
 
 Phase 18 does not automate sending, add cron/schedulers, change Gmail OAuth token logic, expose Gmail tokens, or generate AI content.
+
+## Phase 19 Production Readiness
+
+Phase 19 reviews deployment safety before real outreach use:
+
+- Repository safety and `.gitignore` coverage for env files, uploads, logs, build output, and dependencies
+- Environment variable documentation with placeholder-only examples
+- Supabase migration order review
+- Gmail OAuth safety notes
+- Email sending safety notes
+- Deployment and rollback checklist at `docs/phase-19-production-readiness.md`
+
+### Required Environment Variables
+
+Backend deployment variables:
+
+- `PORT`
+- `CLIENT_URL`
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `DATABASE_URL` for trusted migration/admin use
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_OAUTH_REDIRECT_URI`
+- `GOOGLE_OAUTH_SCOPES`
+- `EMAIL_SEND_MODE`
+- `GHL_MODE`
+- `GHL_PRIVATE_INTEGRATION_TOKEN`
+- `GHL_LOCATION_ID`
+- `GHL_WORKFLOW_ID`
+- `GHL_API_BASE_URL`
+
+Frontend deployment variables:
+
+- `VITE_API_BASE_URL`
+
+`SUPABASE_SERVICE_ROLE_KEY` is backend-only. Never expose it to frontend code or browser builds. Frontend code should only use public client-safe values such as `VITE_API_BASE_URL`, and a Supabase anon key only if a future frontend Supabase client is intentionally introduced.
+
+### Safe Email Mode
+
+`EMAIL_SEND_MODE=mock` is the safe default. Real sending must be explicitly enabled only after business approval, deployment review, and a documented live-send test plan. Approving a draft does not automatically send an email.
+
+### Gmail OAuth Safety
+
+Gmail OAuth client secrets and token values must stay backend-only. API responses should expose account connection status only, not access or refresh tokens. The current token-storage implementation is marked as placeholder storage and should be replaced with production encryption/KMS before broad production use.
+
+### Deployment Checklist
+
+- Apply Supabase migrations in order from `001_initial_schema.sql` through `012_notification_system_fields.sql`.
+- Keep `EMAIL_SEND_MODE=mock` during staging and pre-production QA.
+- Confirm `/api/health` returns `status: ok`.
+- Confirm dashboard, notifications, campaigns, and timeline endpoints respond.
+- Confirm frontend build uses only client-safe environment variables.
+- Confirm logs do not print secrets, Gmail OAuth tokens, or service role keys.
+
+### Pre-Production QA Checklist
+
+- Run backend import/syntax checks.
+- Run frontend lint and build.
+- Run `git diff --check`.
+- Smoke test Dashboard, Campaigns, Lead Uploads, Email Accounts, Notifications, and timeline views.
+- Walk through draft approval, mock send, reply review, no-reply review, follow-up draft review, notifications, and dashboards with `EMAIL_SEND_MODE=mock`.
+- Confirm no real email is sent during QA.
 
 ## Frontend
 
