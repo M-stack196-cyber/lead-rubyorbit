@@ -31,6 +31,9 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 - Phase 12 completed: team decision system after reply detection.
 - Phase 13 completed: reply draft handling and manual reply workflow.
 - Phase 14 completed: no-reply timeout handling for manual team review.
+- Phase 15 completed: follow-up creation cycle for no-reply emails.
+- Phase 16 completed: notification system for workflow visibility.
+- Phase 17 completed: dashboard and lead timeline visibility.
 
 ## Phase 0 Scope
 
@@ -282,6 +285,20 @@ Phase 14 does not send follow-ups automatically. Follow-up sending remains manua
 - `GET /api/no-reply-monitoring/campaigns/:campaignId/no-replies`
 - `GET /api/no-reply-monitoring/sent-emails/:sentEmailId/no-reply-status`
 
+## Phase 17 Scope
+
+Phase 17 adds read-only dashboard and timeline visibility only:
+
+- Global dashboard summary at `GET /api/dashboard/summary`
+- Campaign dashboard summary at `GET /api/dashboard/campaigns/:campaignId/summary`
+- Campaign activity feed at `GET /api/dashboard/campaigns/:campaignId/activity`
+- Lead timeline at `GET /api/dashboard/leads/:leadId/timeline`
+- Campaign-lead timeline at `GET /api/dashboard/campaign-leads/:campaignLeadId/timeline`
+- Dashboard frontend summary cards, campaign overview, recent activity, notification summary, and pending actions
+- Campaign detail dashboard summary, activity timeline, and campaign-lead timeline selector
+
+Phase 17 is read-only visibility. It does not automate outreach, send emails, change Gmail OAuth token logic, schedule jobs, or generate AI content.
+
 ## Frontend
 
 ```bash
@@ -317,6 +334,8 @@ backend/db/migrations/007_reply_monitoring_fields.sql
 backend/db/migrations/008_team_decision_fields.sql
 backend/db/migrations/009_reply_draft_workflow_fields.sql
 backend/db/migrations/010_no_reply_timeout_fields.sql
+backend/db/migrations/011_followup_creation_fields.sql
+backend/db/migrations/012_notification_system_fields.sql
 ```
 
 Apply these SQL migrations in a Supabase PostgreSQL project when you are ready to create or update the schema. Do not commit real `.env` files or secrets.

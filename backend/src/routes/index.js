@@ -2,6 +2,7 @@ import { Router } from 'express'
 
 import { healthRouter } from './healthRoutes.js'
 import { campaignsRouter } from '../modules/campaigns/campaigns.routes.js'
+import { dashboardRouter } from '../modules/dashboard/dashboard.routes.js'
 import { emailAccountsRouter } from '../modules/emailAccounts/emailAccounts.routes.js'
 import { emailDraftsRouter } from '../modules/emailDrafts/emailDrafts.routes.js'
 import { emailSendingRouter } from '../modules/emailSending/emailSending.routes.js'
@@ -20,6 +21,7 @@ import { listReplyTeamDecisionsController } from '../modules/teamDecisions/teamD
 export const apiRoutes = Router()
 
 apiRoutes.use('/health', healthRouter)
+apiRoutes.use('/dashboard', dashboardRouter)
 apiRoutes.use('/lead-uploads', leadUploadsRouter)
 apiRoutes.use('/campaigns', campaignsRouter)
 apiRoutes.use('/leads', leadsRouter)

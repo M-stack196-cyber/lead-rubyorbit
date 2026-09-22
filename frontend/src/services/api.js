@@ -29,6 +29,41 @@ export async function getBackendHealth() {
   return parseApiResponse(response)
 }
 
+export async function getDashboardSummary() {
+  const response = await fetch(`${API_BASE_URL}/api/dashboard/summary`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignDashboardSummary(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/dashboard/campaigns/${campaignId}/summary`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignActivity(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/dashboard/campaigns/${campaignId}/activity`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getLeadTimeline(leadId) {
+  const response = await fetch(`${API_BASE_URL}/api/dashboard/leads/${leadId}/timeline`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignLeadTimeline(campaignLeadId) {
+  const response = await fetch(`${API_BASE_URL}/api/dashboard/campaign-leads/${campaignLeadId}/timeline`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
 export async function uploadLeadFile(file) {
   const formData = new FormData()
   formData.append('file', file)

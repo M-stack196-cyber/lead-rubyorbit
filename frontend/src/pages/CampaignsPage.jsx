@@ -31,9 +31,12 @@ import {
   completeTeamDecision,
   createCampaign,
   createEmailDraft,
+  getCampaignActivity,
   getCampaignById,
+  getCampaignDashboardSummary,
   getCampaignEmailDrafts,
   getCampaignGhlSyncStatus,
+  getCampaignLeadTimeline,
   getCampaignLeads,
   getCampaignNotifications,
   getCampaignReplies,
@@ -104,12 +107,16 @@ export function CampaignsPage() {
   const [noReplyMonitoringStatus, setNoReplyMonitoringStatus] = useState(null)
   const [campaignNoReplies, setCampaignNoReplies] = useState([])
   const [campaignNotifications, setCampaignNotifications] = useState([])
+  const [campaignDashboardSummary, setCampaignDashboardSummary] = useState(null)
+  const [campaignActivity, setCampaignActivity] = useState([])
+  const [campaignLeadTimeline, setCampaignLeadTimeline] = useState(null)
   const [replyDrafts, setReplyDrafts] = useState([])
   const [teamDecisions, setTeamDecisions] = useState([])
   const [lastReplyCheckSummary, setLastReplyCheckSummary] = useState(null)
   const [lastNoReplyCheckSummary, setLastNoReplyCheckSummary] = useState(null)
   const [lastNotificationGenerateSummary, setLastNotificationGenerateSummary] = useState(null)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState('')
+  const [selectedTimelineCampaignLeadId, setSelectedTimelineCampaignLeadId] = useState('')
   const [selectedDraftId, setSelectedDraftId] = useState('')
   const [draftForm, setDraftForm] = useState(defaultDraftForm)
   const [selectedReplyDraftId, setSelectedReplyDraftId] = useState('')
@@ -184,6 +191,8 @@ export function CampaignsPage() {
         noReplyStatus,
         noReplies,
         notifications,
+        dashboardSummary,
+        activityFeed,
         replyDraftList,
         decisions,
       ] = await Promise.all([
@@ -200,6 +209,8 @@ export function CampaignsPage() {
           getNoReplyMonitoringStatus(),
           getCampaignNoReplies(campaignId),
           getCampaignNotifications(campaignId),
+          getCampaignDashboardSummary(campaignId),
+          getCampaignActivity(campaignId),
           getCampaignReplyDrafts(campaignId),
           getCampaignTeamDecisions(campaignId),
         ])
@@ -216,6 +227,16 @@ export function CampaignsPage() {
       setNoReplyMonitoringStatus(noReplyStatus)
       setCampaignNoReplies(noReplies)
       setCampaignNotifications(notifications)
+      setCampaignDashboardSummary(dashboardSummary)
+      setCampaignActivity(activityFeed.items || [])
+      const preferredTimelineLeadId = leads[0]?.id || ''
+      setSelectedTimelineCampaignLeadId(preferredTimelineLeadId)
+      if (preferredTimelineLeadId) {
+        const timeline = await getCampaignLeadTimeline(preferredTimelineLeadId)
+        setCampaignLeadTimeline(timeline)
+      } else {
+        setCampaignLeadTimeline(null)
+      }
       setReplyDrafts(replyDraftList)
       setTeamDecisions(decisions)
       setSelectedEmailAccountId((currentAccountId) => {
@@ -254,6 +275,10 @@ export function CampaignsPage() {
       setNoReplyMonitoringStatus(null)
       setCampaignNoReplies([])
       setCampaignNotifications([])
+      setCampaignDashboardSummary(null)
+      setCampaignActivity([])
+      setCampaignLeadTimeline(null)
+      setSelectedTimelineCampaignLeadId('')
       setReplyDrafts([])
       setTeamDecisions([])
     }
@@ -460,6 +485,23 @@ export function CampaignsPage() {
 
     const notifications = await getCampaignNotifications(campaignId)
     setCampaignNotifications(notifications)
+  }
+
+  async function handleSelectTimelineCampaignLead(campaignLeadId) {
+    setSelectedTimelineCampaignLeadId(campaignLeadId)
+    setError('')
+
+    if (!campaignLeadId) {
+      setCampaignLeadTimeline(null)
+      return
+    }
+
+    try {
+      const timeline = await getCampaignLeadTimeline(campaignLeadId)
+      setCampaignLeadTimeline(timeline)
+    } catch (timelineError) {
+      setError(timelineError.message)
+    }
   }
 
   async function reloadReplyDrafts(campaignId = selectedCampaignId) {
@@ -959,7 +1001,11 @@ export function CampaignsPage() {
           selectedDraftId={selectedDraftId}
           selectedEmailAccountId={selectedEmailAccountId}
           selectedLeadIds={selectedLeadIds}
+          selectedTimelineCampaignLeadId={selectedTimelineCampaignLeadId}
           sentEmails={sentEmails}
+          campaignActivity={campaignActivity}
+          campaignDashboardSummary={campaignDashboardSummary}
+          campaignLeadTimeline={campaignLeadTimeline}
           campaignReplies={campaignReplies}
           campaignNoReplies={campaignNoReplies}
           campaignNotifications={campaignNotifications}
@@ -1005,6 +1051,7 @@ export function CampaignsPage() {
           onReplyDraftSend={handleSendReplyDraft}
           onReplyDraftSubmit={handleSubmitReplyDraft}
           onLeadSelection={setSelectedLeadIds}
+          onTimelineCampaignLeadChange={handleSelectTimelineCampaignLead}
           onStatusUpdate={handleStatusUpdate}
         />
       </section>
@@ -1192,8 +1239,12 @@ function CampaignDetailCard({
   isSaving,
   selectedEmailAccountId,
   selectedLeadIds,
+  selectedTimelineCampaignLeadId,
   selectedDraftId,
   sentEmails,
+  campaignActivity,
+  campaignDashboardSummary,
+  campaignLeadTimeline,
   campaignReplies,
   campaignNoReplies,
   campaignNotifications,
@@ -1222,6 +1273,7 @@ function CampaignDetailCard({
   onDraftSelect,
   onEmailAccountChange,
   onLeadSelection,
+  onTimelineCampaignLeadChange,
   onSendCampaignEmails,
   onSendDraft,
   onCheckCampaignReplies,
@@ -1291,6 +1343,17 @@ function CampaignDetailCard({
           <InfoTile label="Created" value={formatDate(campaign.created_at)} />
           <InfoTile label="Updated" value={formatDate(campaign.updated_at)} />
         </div>
+
+        <CampaignDashboardSummaryPanel summary={campaignDashboardSummary} />
+
+        <CampaignActivityPanel items={campaignActivity} />
+
+        <CampaignLeadTimelinePanel
+          campaignLeads={campaignLeads}
+          selectedCampaignLeadId={selectedTimelineCampaignLeadId}
+          timeline={campaignLeadTimeline}
+          onSelect={onTimelineCampaignLeadChange}
+        />
 
         <AttachLeadsPanel
           attachableLeads={attachableLeads}
@@ -1395,6 +1458,147 @@ function CampaignDetailCard({
         <CampaignLeadsTable campaignLeads={campaignLeads} />
       </CardContent>
     </Card>
+  )
+}
+
+function CampaignDashboardSummaryPanel({ summary }) {
+  if (!summary) {
+    return <EmptyState text="Campaign dashboard summary is loading." />
+  }
+
+  const statusEntries = Object.entries(summary.leadsByOutreachStatus || {})
+  const draftEntries = Object.entries(summary.emailDraftsByStatus || {})
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Dashboard Summary</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Read-only visibility for campaign leads, drafts, replies, decisions, and notifications.
+          </p>
+        </div>
+        <Badge variant="outline">{summary.campaign?.status || 'draft'}</Badge>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <InfoTile label="Campaign leads" value={summary.totalCampaignLeads || 0} />
+        <InfoTile label="Sent emails" value={summary.sentEmailsCount || 0} />
+        <InfoTile label="Replies" value={summary.repliesCount || 0} />
+        <InfoTile label="No replies" value={summary.noRepliesCount || 0} />
+        <InfoTile label="Pending decisions" value={summary.pendingTeamDecisionsCount || 0} />
+        <InfoTile label="Reply drafts" value={summary.replyDraftsCount || 0} />
+        <InfoTile label="Follow-up drafts" value={summary.followupDraftsCount || 0} />
+        <InfoTile label="Unread notifications" value={summary.unreadNotificationsCount || 0} />
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <BreakdownList title="Outreach Status" entries={statusEntries} />
+        <BreakdownList title="Draft Status" entries={draftEntries} />
+      </div>
+    </div>
+  )
+}
+
+function BreakdownList({ entries, title }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+      <p className="text-xs font-semibold uppercase tracking-normal text-slate-500">{title}</p>
+      {entries.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {entries.map(([label, value]) => (
+            <span
+              className="inline-flex rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+              key={label}
+            >
+              {formatSnakeLabel(label)}: {value}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-sm text-slate-500">No data yet.</p>
+      )}
+    </div>
+  )
+}
+
+function CampaignActivityPanel({ items }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-4">
+      <div>
+        <h3 className="text-sm font-semibold text-slate-950">Activity Timeline</h3>
+        <p className="mt-1 text-sm text-slate-500">
+          Chronological campaign activity from leads, drafts, emails, replies, decisions, and notifications.
+        </p>
+      </div>
+      <TimelineList items={items} limit={12} />
+    </div>
+  )
+}
+
+function CampaignLeadTimelinePanel({ campaignLeads, selectedCampaignLeadId, timeline, onSelect }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Lead Timeline</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Campaign-lead history including GHL status, drafts, sent emails, replies, no-replies, and decisions.
+          </p>
+        </div>
+        <select
+          className="min-h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+          value={selectedCampaignLeadId}
+          onChange={(event) => onSelect(event.target.value)}
+        >
+          <option value="">Select lead</option>
+          {campaignLeads.map((row) => (
+            <option key={row.id} value={row.id}>
+              {row.lead?.name || row.lead?.email || row.id}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {timeline?.campaignLead ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <InfoTile label="Lead" value={timeline.lead?.name || timeline.lead?.email || '-'} />
+          <InfoTile label="Outreach" value={timeline.campaignLead.outreach_status} />
+          <InfoTile label="GHL Sync" value={timeline.campaignLead.ghl_sync_status} />
+        </div>
+      ) : null}
+
+      <TimelineList items={timeline?.items || []} limit={14} />
+    </div>
+  )
+}
+
+function TimelineList({ items, limit }) {
+  if (!items.length) {
+    return <div className="mt-4"><EmptyState text="No timeline activity yet." /></div>
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      {items.slice(0, limit).map((item) => (
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3" key={item.id}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-medium text-slate-950">{item.title}</p>
+                <span className="inline-flex rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600">
+                  {formatSnakeLabel(item.type)}
+                </span>
+              </div>
+              <p className="mt-1 text-sm leading-5 text-slate-600">{item.description || '-'}</p>
+            </div>
+            <span className="whitespace-nowrap text-xs text-slate-500">
+              {formatDate(item.occurredAt)}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 
