@@ -36,6 +36,7 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 - Phase 17 completed: dashboard and lead timeline visibility.
 - Phase 18 completed: frontend workflow polish and end-to-end QA checklist.
 - Phase 19 completed: production readiness review, deployment safety documentation, and repo/env hardening.
+- Phase 20 completed: final demo preparation, handoff documentation, screenshot checklist, and project summary.
 
 ## Phase 0 Scope
 
@@ -376,6 +377,17 @@ Gmail OAuth client secrets and token values must stay backend-only. API response
 - Smoke test Dashboard, Campaigns, Lead Uploads, Email Accounts, Notifications, and timeline views.
 - Walk through draft approval, mock send, reply review, no-reply review, follow-up draft review, notifications, and dashboards with `EMAIL_SEND_MODE=mock`.
 - Confirm no real email is sent during QA.
+
+## Phase 20 Final Demo Preparation
+
+Phase 20 adds demo and handoff documentation only:
+
+- Final demo preparation guide at `docs/phase-20-final-demo-preparation.md`
+- Step-by-step demo script at `docs/demo-script.md`
+- Screenshot checklist at `docs/screenshot-checklist.md`
+- Final project summary at `docs/final-project-summary.md`
+
+The demo remains safe by default with `EMAIL_SEND_MODE=mock`. Phase 20 does not add product logic, change backend business logic, create migrations, send real emails, change Gmail OAuth token logic, add schedulers, or implement AI generation.
 
 ## Frontend
 
