@@ -4,12 +4,14 @@ import { CampaignsPage } from '@/pages/CampaignsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { EmailAccountsPage } from '@/pages/EmailAccountsPage'
 import { LeadUploadsPage } from '@/pages/LeadUploadsPage'
+import { NotificationsPage } from '@/pages/NotificationsPage'
 
 const pages = {
   campaigns: CampaignsPage,
   dashboard: DashboardPage,
   'email-accounts': EmailAccountsPage,
   'lead-uploads': LeadUploadsPage,
+  notifications: NotificationsPage,
 }
 
 function getCurrentPage() {

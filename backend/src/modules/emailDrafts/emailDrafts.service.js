@@ -2,6 +2,7 @@ import { env } from '../../config/env.js'
 import { createSupabaseServiceClient } from '../../config/supabase.js'
 import { sendGmailMessage } from '../gmail/gmail.sender.js'
 import { sendMockEmail } from '../emailSending/emailSending.mockSender.js'
+import { createNotificationIfMissing } from '../notifications/notifications.service.js'
 
 const allowedDraftTypes = new Set(['primary', 'follow_up', 'followup', 'reply', 'manual'])
 const allowedDraftStatuses = new Set([
@@ -235,6 +236,35 @@ function mapSentEmail(row) {
   }
 }
 
+async function safelyCreateDraftNotification(draft, type) {
+  try {
+    const isFollowup = ['follow_up', 'followup'].includes(draft.draftType || draft.type)
+    await createNotificationIfMissing({
+      type,
+      title:
+        type === 'draft_approved'
+          ? 'Draft approved'
+          : isFollowup
+            ? 'Follow-up draft needs approval'
+            : 'Reply draft needs approval',
+      message: draft.subject
+        ? `Review draft: ${draft.subject}`
+        : type === 'draft_approved'
+          ? 'An email draft was approved.'
+          : 'An email draft is pending approval.',
+      priority: type === 'draft_approved' ? 'normal' : 'high',
+      campaignId: draft.campaignId || draft.campaign_id,
+      leadId: draft.leadId || draft.lead_id,
+      campaignLeadId: draft.campaignLeadId || draft.campaign_lead_id,
+      replyId: draft.replyId || draft.reply_id,
+      sentEmailId: draft.sentEmailId || draft.sent_email_id,
+      emailDraftId: draft.id,
+    })
+  } catch (error) {
+    console.warn('Failed to create draft notification:', error.message)
+  }
+}
+
 export async function listEmailDrafts() {
   const supabase = getSupabaseClient()
 
@@ -288,7 +318,10 @@ export async function createEmailDraft(payload = {}) {
     throw error
   }
 
-  return mapDraft(data)
+  const mappedDraft = mapDraft(data)
+  await safelyCreateDraftNotification(mappedDraft, 'draft_approved')
+
+  return mappedDraft
 }
 
 export async function getEmailDraftById(draftId) {
@@ -306,7 +339,13 @@ export async function getEmailDraftById(draftId) {
     throw error
   }
 
-  return mapDraft(data)
+  const mappedDraft = mapDraft(data)
+
+  if (['reply', 'follow_up', 'followup'].includes(mappedDraft.draftType)) {
+    await safelyCreateDraftNotification(mappedDraft, 'reply_draft_pending_approval')
+  }
+
+  return mappedDraft
 }
 
 export async function updateEmailDraft(draftId, payload = {}) {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
+  Bell,
   CheckCircle2,
   CirclePlus,
   Edit3,
@@ -34,6 +35,7 @@ import {
   getCampaignEmailDrafts,
   getCampaignGhlSyncStatus,
   getCampaignLeads,
+  getCampaignNotifications,
   getCampaignReplies,
   getCampaignNoReplies,
   getCampaignReplyDrafts,
@@ -46,6 +48,7 @@ import {
   getLeads,
   getNoReplyMonitoringStatus,
   getReplyMonitoringStatus,
+  generateCampaignNotifications,
   rejectEmailDraft,
   retryFailedGhlSync,
   sendCampaignEmails,
@@ -100,10 +103,12 @@ export function CampaignsPage() {
   const [campaignReplies, setCampaignReplies] = useState([])
   const [noReplyMonitoringStatus, setNoReplyMonitoringStatus] = useState(null)
   const [campaignNoReplies, setCampaignNoReplies] = useState([])
+  const [campaignNotifications, setCampaignNotifications] = useState([])
   const [replyDrafts, setReplyDrafts] = useState([])
   const [teamDecisions, setTeamDecisions] = useState([])
   const [lastReplyCheckSummary, setLastReplyCheckSummary] = useState(null)
   const [lastNoReplyCheckSummary, setLastNoReplyCheckSummary] = useState(null)
+  const [lastNotificationGenerateSummary, setLastNotificationGenerateSummary] = useState(null)
   const [selectedEmailAccountId, setSelectedEmailAccountId] = useState('')
   const [selectedDraftId, setSelectedDraftId] = useState('')
   const [draftForm, setDraftForm] = useState(defaultDraftForm)
@@ -122,6 +127,7 @@ export function CampaignsPage() {
   const [isEmailSending, setIsEmailSending] = useState(false)
   const [isReplyChecking, setIsReplyChecking] = useState(false)
   const [isNoReplyChecking, setIsNoReplyChecking] = useState(false)
+  const [isGeneratingNotifications, setIsGeneratingNotifications] = useState(false)
   const [checkingSentEmailId, setCheckingSentEmailId] = useState('')
   const [checkingNoReplySentEmailId, setCheckingNoReplySentEmailId] = useState('')
   const [activeDecisionId, setActiveDecisionId] = useState('')
@@ -177,6 +183,7 @@ export function CampaignsPage() {
         replies,
         noReplyStatus,
         noReplies,
+        notifications,
         replyDraftList,
         decisions,
       ] = await Promise.all([
@@ -192,6 +199,7 @@ export function CampaignsPage() {
           getCampaignReplies(campaignId),
           getNoReplyMonitoringStatus(),
           getCampaignNoReplies(campaignId),
+          getCampaignNotifications(campaignId),
           getCampaignReplyDrafts(campaignId),
           getCampaignTeamDecisions(campaignId),
         ])
@@ -207,6 +215,7 @@ export function CampaignsPage() {
       setCampaignReplies(replies)
       setNoReplyMonitoringStatus(noReplyStatus)
       setCampaignNoReplies(noReplies)
+      setCampaignNotifications(notifications)
       setReplyDrafts(replyDraftList)
       setTeamDecisions(decisions)
       setSelectedEmailAccountId((currentAccountId) => {
@@ -244,6 +253,7 @@ export function CampaignsPage() {
       setCampaignReplies([])
       setNoReplyMonitoringStatus(null)
       setCampaignNoReplies([])
+      setCampaignNotifications([])
       setReplyDrafts([])
       setTeamDecisions([])
     }
@@ -445,6 +455,13 @@ export function CampaignsPage() {
     setTeamDecisions(decisions)
   }
 
+  async function reloadCampaignNotifications(campaignId = selectedCampaignId) {
+    if (!campaignId) return
+
+    const notifications = await getCampaignNotifications(campaignId)
+    setCampaignNotifications(notifications)
+  }
+
   async function reloadReplyDrafts(campaignId = selectedCampaignId) {
     if (!campaignId) return
 
@@ -644,7 +661,10 @@ export function CampaignsPage() {
       setSuccess(
         `No-reply check complete: ${result.checked} checked, ${result.noReplyDetected} no-reply, ${result.alreadyNoReply} already marked, ${result.skippedBecauseReplied} replied, ${result.skippedBecauseNotDue} not due.`,
       )
-      await reloadNoReplies(selectedCampaignId)
+      await Promise.all([
+        reloadNoReplies(selectedCampaignId),
+        reloadCampaignNotifications(selectedCampaignId),
+      ])
     } catch (noReplyError) {
       setError(noReplyError.message)
     } finally {
@@ -671,7 +691,10 @@ export function CampaignsPage() {
             ? 'This sent email was already marked no-reply.'
             : `No-reply check complete: ${formatNoReplyReason(result.reason)}.`,
       )
-      await reloadNoReplies(selectedCampaignId)
+      await Promise.all([
+        reloadNoReplies(selectedCampaignId),
+        reloadCampaignNotifications(selectedCampaignId),
+      ])
     } catch (noReplyError) {
       setError(noReplyError.message)
     } finally {
@@ -708,7 +731,10 @@ export function CampaignsPage() {
       })
       setSuccess('Reply draft updated. No email was sent.')
       resetReplyDraftForm()
-      await reloadReplyDrafts(selectedCampaignId)
+      await Promise.all([
+        reloadReplyDrafts(selectedCampaignId),
+        reloadCampaignNotifications(selectedCampaignId),
+      ])
     } catch (draftError) {
       setError(draftError.message)
     } finally {
@@ -726,7 +752,10 @@ export function CampaignsPage() {
     try {
       await submitEmailDraftForApproval(draftId)
       setSuccess('Reply draft submitted for approval. No email was sent.')
-      await reloadReplyDrafts(selectedCampaignId)
+      await Promise.all([
+        reloadReplyDrafts(selectedCampaignId),
+        reloadCampaignNotifications(selectedCampaignId),
+      ])
     } catch (draftError) {
       setError(draftError.message)
     } finally {
@@ -843,6 +872,27 @@ export function CampaignsPage() {
     }
   }
 
+  async function handleGenerateCampaignNotifications() {
+    if (!selectedCampaignId) return
+
+    setIsGeneratingNotifications(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await generateCampaignNotifications(selectedCampaignId)
+      setLastNotificationGenerateSummary(result)
+      setSuccess(
+        `Notifications generated: ${result.createdCount} created, ${result.existingCount} existing.`,
+      )
+      await reloadCampaignNotifications(selectedCampaignId)
+    } catch (notificationError) {
+      setError(notificationError.message)
+    } finally {
+      setIsGeneratingNotifications(false)
+    }
+  }
+
   return (
     <>
       <header className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
@@ -898,6 +948,7 @@ export function CampaignsPage() {
           isEmailSending={isEmailSending}
           isReplyChecking={isReplyChecking}
           isNoReplyChecking={isNoReplyChecking}
+          isGeneratingNotifications={isGeneratingNotifications}
           isReplyDraftSaving={isReplyDraftSaving}
           isGhlLoading={isGhlLoading}
           isGhlSyncing={isGhlSyncing}
@@ -911,6 +962,7 @@ export function CampaignsPage() {
           sentEmails={sentEmails}
           campaignReplies={campaignReplies}
           campaignNoReplies={campaignNoReplies}
+          campaignNotifications={campaignNotifications}
           replyDrafts={replyDrafts}
           replyDraftForm={replyDraftForm}
           teamDecisions={teamDecisions}
@@ -920,6 +972,7 @@ export function CampaignsPage() {
           activeReplyDraftId={activeReplyDraftId}
           lastReplyCheckSummary={lastReplyCheckSummary}
           lastNoReplyCheckSummary={lastNoReplyCheckSummary}
+          lastNotificationGenerateSummary={lastNotificationGenerateSummary}
           noReplyMonitoringStatus={noReplyMonitoringStatus}
           replyMonitoringStatus={replyMonitoringStatus}
           selectedReplyDraftId={selectedReplyDraftId}
@@ -940,6 +993,7 @@ export function CampaignsPage() {
           onCheckSentEmailReplies={handleCheckSentEmailReplies}
           onCheckCampaignNoReplies={handleCheckCampaignNoReplies}
           onCheckSentEmailNoReply={handleCheckSentEmailNoReply}
+          onGenerateCampaignNotifications={handleGenerateCampaignNotifications}
           onCompleteTeamDecision={handleCompleteTeamDecision}
           onCancelTeamDecision={handleCancelTeamDecision}
           onReplyDraftApprove={handleApproveReplyDraft}
@@ -1130,6 +1184,7 @@ function CampaignDetailCard({
   isEmailSending,
   isReplyChecking,
   isNoReplyChecking,
+  isGeneratingNotifications,
   isReplyDraftSaving,
   isGhlLoading,
   isGhlSyncing,
@@ -1141,6 +1196,7 @@ function CampaignDetailCard({
   sentEmails,
   campaignReplies,
   campaignNoReplies,
+  campaignNotifications,
   replyDrafts,
   replyDraftForm,
   teamDecisions,
@@ -1150,6 +1206,7 @@ function CampaignDetailCard({
   activeReplyDraftId,
   lastReplyCheckSummary,
   lastNoReplyCheckSummary,
+  lastNotificationGenerateSummary,
   noReplyMonitoringStatus,
   replyMonitoringStatus,
   selectedReplyDraftId,
@@ -1171,6 +1228,7 @@ function CampaignDetailCard({
   onCheckSentEmailReplies,
   onCheckCampaignNoReplies,
   onCheckSentEmailNoReply,
+  onGenerateCampaignNotifications,
   onCompleteTeamDecision,
   onCancelTeamDecision,
   onReplyDraftApprove,
@@ -1299,6 +1357,13 @@ function CampaignDetailCard({
           status={noReplyMonitoringStatus}
           onCheckCampaign={onCheckCampaignNoReplies}
           onCheckSentEmail={onCheckSentEmailNoReply}
+        />
+
+        <CampaignNotificationsPanel
+          isGenerating={isGeneratingNotifications}
+          lastSummary={lastNotificationGenerateSummary}
+          notifications={campaignNotifications}
+          onGenerate={onGenerateCampaignNotifications}
         />
 
         <TeamDecisionsPanel
@@ -2678,6 +2743,103 @@ const decisionActions = [
   ['continue_later', 'Continue later'],
 ]
 
+function CampaignNotificationsPanel({ isGenerating, lastSummary, notifications, onGenerate }) {
+  const summary = {
+    unread: notifications.filter((notification) => notification.status === 'unread').length,
+    high: notifications.filter((notification) => notification.priority === 'high').length,
+    urgent: notifications.filter((notification) => notification.priority === 'urgent').length,
+  }
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Notifications</h3>
+          <p className="mt-1 text-sm text-slate-500">
+            Campaign alerts for replies, approvals, team decisions, and follow-up review.
+          </p>
+        </div>
+        <button
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          onClick={onGenerate}
+          disabled={isGenerating}
+        >
+          {isGenerating ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <Bell className="h-4 w-4" aria-hidden="true" />
+          )}
+          Generate campaign notifications
+        </button>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <InfoTile label="Unread" value={summary.unread} />
+        <InfoTile label="High priority" value={summary.high} />
+        <InfoTile label="Urgent" value={summary.urgent} />
+      </div>
+
+      {lastSummary ? (
+        <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+          Last generation: {lastSummary.createdCount} created, {lastSummary.existingCount} existing,
+          {` ${lastSummary.scannedCount}`} scanned.
+        </div>
+      ) : null}
+
+      {notifications.length ? (
+        <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Notification</th>
+                  <th className="px-4 py-3">Type</th>
+                  <th className="px-4 py-3">Priority</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Lead</th>
+                  <th className="px-4 py-3">Created</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 bg-white">
+                {notifications.slice(0, 10).map((notification) => (
+                  <tr key={notification.id} className="align-top">
+                    <td className="min-w-72 px-4 py-3">
+                      <p className="font-medium text-slate-950">{notification.title}</p>
+                      <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+                        {notification.message || '-'}
+                      </p>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                      {formatSnakeLabel(notification.type)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <NotificationPill value={notification.priority} />
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <NotificationPill value={notification.status} />
+                    </td>
+                    <td className="min-w-48 px-4 py-3 text-slate-700">
+                      {notification.lead?.name || notification.lead?.email || '-'}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                      {formatDate(notification.createdAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
+          No campaign notifications yet.
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TeamDecisionsPanel({ activeDecisionId, decisions, onCancel, onComplete }) {
   const summary = {
     pending: decisions.filter((decision) => decision.status === 'pending').length,
@@ -2891,6 +3053,14 @@ function DecisionStatusBadge({ status }) {
   return <Badge variant={variants[status] || 'secondary'}>{status || 'pending'}</Badge>
 }
 
+function NotificationPill({ value }) {
+  return (
+    <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+      {formatSnakeLabel(value)}
+    </span>
+  )
+}
+
 function InfoTile({ label, value }) {
   return (
     <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
@@ -2909,6 +3079,12 @@ function EmptyState({ text }) {
 }
 
 function formatDecisionType(value) {
+  if (!value) return '-'
+
+  return String(value).replaceAll('_', ' ')
+}
+
+function formatSnakeLabel(value) {
   if (!value) return '-'
 
   return String(value).replaceAll('_', ' ')

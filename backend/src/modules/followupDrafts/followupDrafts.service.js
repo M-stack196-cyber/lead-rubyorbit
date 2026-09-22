@@ -1,4 +1,5 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
+import { createNotificationIfMissing } from '../notifications/notifications.service.js'
 
 const defaultFollowupBody = 'Hi {{firstName}},\n\nJust following up on my previous email.\n\nBest,\nDatamart'
 const followupDraftTypes = ['follow_up', 'followup']
@@ -284,6 +285,24 @@ async function getPendingNoReplyDecision(supabase, sentEmailId) {
   return data?.[0] || null
 }
 
+async function safelyCreateFollowupDraftNotification(draft) {
+  try {
+    await createNotificationIfMissing({
+      type: 'followup_draft_created',
+      title: 'Follow-up draft created',
+      message: draft.subject ? `Review follow-up draft: ${draft.subject}` : 'A follow-up draft was created.',
+      priority: 'normal',
+      campaignId: draft.campaign_id,
+      leadId: draft.lead_id,
+      campaignLeadId: draft.campaign_lead_id,
+      sentEmailId: draft.source_no_reply_sent_email_id,
+      emailDraftId: draft.id,
+    })
+  } catch (error) {
+    console.warn('Failed to create follow-up draft notification:', error.message)
+  }
+}
+
 async function getNextFollowupNumber(supabase, campaignLeadId) {
   const { data, error } = await supabase
     .from('email_drafts')
@@ -453,6 +472,8 @@ export async function createFollowupDraft(payload = {}) {
   if (leadError) {
     throw createHttpError(leadError.message, 500)
   }
+
+  await safelyCreateFollowupDraftNotification(data)
 
   return {
     draft: mapDraft(data),

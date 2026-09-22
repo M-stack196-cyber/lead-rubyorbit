@@ -29,7 +29,7 @@ const navigationItems = [
   { label: 'Team Decisions', icon: CheckSquare },
   { label: 'Email Accounts', icon: MailCheck, page: 'email-accounts' },
   { label: 'Workflow Settings', icon: Settings2 },
-  { label: 'Notifications', icon: Bell },
+  { label: 'Notifications', icon: Bell, page: 'notifications' },
   { label: 'Team Members', icon: UserRoundCog },
 ]
 

@@ -1,5 +1,6 @@
 import { env } from '../../config/env.js'
 import { createSupabaseServiceClient } from '../../config/supabase.js'
+import { createNotificationIfMissing } from '../notifications/notifications.service.js'
 
 const defaultTimeoutDays = 3
 const eligibleSentEmailStatuses = new Set(['sent', 'waiting_reply'])
@@ -216,6 +217,49 @@ async function createPendingNoReplyDecision(supabase, sentEmail, timeoutDays) {
   return { decision: data, created: true }
 }
 
+async function safelyCreateNoReplyNotifications(sentEmail, decision = null) {
+  try {
+    await createNotificationIfMissing({
+      type: 'no_reply_detected',
+      title: 'No reply detected',
+      message: sentEmail.subject
+        ? `No reply was detected for sent email: ${sentEmail.subject}`
+        : 'No reply was detected for a sent email.',
+      priority: 'high',
+      campaignId: sentEmail.campaign_id,
+      leadId: sentEmail.lead_id,
+      campaignLeadId: sentEmail.campaign_lead_id,
+      sentEmailId: sentEmail.id,
+    })
+
+    await createNotificationIfMissing({
+      type: 'followup_required',
+      title: 'Follow-up required',
+      message: 'This campaign lead needs follow-up review.',
+      priority: 'high',
+      campaignId: sentEmail.campaign_id,
+      leadId: sentEmail.lead_id,
+      campaignLeadId: sentEmail.campaign_lead_id,
+    })
+
+    if (decision?.id) {
+      await createNotificationIfMissing({
+        type: 'team_decision_pending',
+        title: 'Team decision pending',
+        message: 'A no-reply team decision is waiting for review.',
+        priority: 'high',
+        campaignId: sentEmail.campaign_id,
+        leadId: sentEmail.lead_id,
+        campaignLeadId: sentEmail.campaign_lead_id,
+        sentEmailId: sentEmail.id,
+        teamDecisionId: decision.id,
+      })
+    }
+  } catch (error) {
+    console.warn('Failed to create no-reply notification:', error.message)
+  }
+}
+
 async function updateCheckedTimestamps(supabase, sentEmail, nowIso, deadlineIso) {
   const { error: sentError } = await supabase
     .from('sent_emails')
@@ -274,6 +318,7 @@ async function markNoReply(supabase, sentEmail, timeoutDays, nowIso, deadlineIso
   }
 
   const decisionResult = await createPendingNoReplyDecision(supabase, sentEmail, timeoutDays)
+  await safelyCreateNoReplyNotifications(sentEmail, decisionResult.decision)
   const refreshed = await getSentEmailById(supabase, sentEmail.id)
 
   return {

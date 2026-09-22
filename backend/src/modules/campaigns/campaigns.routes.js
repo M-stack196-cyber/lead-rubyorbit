@@ -13,6 +13,7 @@ import {
   listCampaignReplyDraftsController,
 } from '../emailDrafts/emailDrafts.controller.js'
 import { listCampaignFollowupDraftsController } from '../followupDrafts/followupDrafts.controller.js'
+import { listCampaignNotificationsController } from '../notifications/notifications.controller.js'
 import { listCampaignTeamDecisionsController } from '../teamDecisions/teamDecisions.controller.js'
 
 export const campaignsRouter = Router()
@@ -27,3 +28,4 @@ campaignsRouter.get('/:campaignId/email-drafts', listCampaignEmailDraftsControll
 campaignsRouter.get('/:campaignId/reply-drafts', listCampaignReplyDraftsController)
 campaignsRouter.get('/:campaignId/followup-drafts', listCampaignFollowupDraftsController)
 campaignsRouter.get('/:campaignId/team-decisions', listCampaignTeamDecisionsController)
+campaignsRouter.get('/:campaignId/notifications', listCampaignNotificationsController)

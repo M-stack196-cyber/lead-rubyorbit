@@ -1,5 +1,6 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
 import { getGoogleOAuthScopes } from '../gmail/gmail.oauthClient.js'
+import { createNotificationIfMissing } from '../notifications/notifications.service.js'
 import { createPendingDecisionForReply } from '../teamDecisions/teamDecisions.service.js'
 import { isReplyFromOtherSender, readGmailThread } from './replyMonitoring.gmailReader.js'
 
@@ -112,6 +113,24 @@ function mapReply(row) {
           status: row.sent_emails.status,
         }
       : null,
+  }
+}
+
+async function safelyCreateNewReplyNotification(reply) {
+  try {
+    await createNotificationIfMissing({
+      type: 'new_reply',
+      title: 'New reply received',
+      message: reply.subject ? `A reply was received: ${reply.subject}` : 'A reply was received.',
+      priority: 'high',
+      campaignId: reply.campaign_id,
+      leadId: reply.lead_id,
+      campaignLeadId: reply.campaign_lead_id,
+      replyId: reply.id,
+      sentEmailId: reply.sent_email_id,
+    })
+  } catch (error) {
+    console.warn('Failed to create new reply notification:', error.message)
   }
 }
 
@@ -273,13 +292,14 @@ export async function checkSentEmailReplies(sentEmailId) {
     const { data: insertedReplies, error: insertError } = await supabase
       .from('replies')
       .insert(rows)
-      .select('id')
+      .select('id, sent_email_id, campaign_id, lead_id, campaign_lead_id, subject')
 
     if (insertError && insertError.code !== '23505') {
       throw createHttpError(insertError.message, 500)
     }
 
     for (const reply of insertedReplies || []) {
+      await safelyCreateNewReplyNotification(reply)
       await createPendingDecisionForReply(reply.id)
     }
   }

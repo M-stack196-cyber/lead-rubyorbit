@@ -1,5 +1,18 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
 
+function buildQuery(params = {}) {
+  const searchParams = new URLSearchParams()
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      searchParams.set(key, value)
+    }
+  })
+
+  const query = searchParams.toString()
+  return query ? `?${query}` : ''
+}
+
 async function parseApiResponse(response) {
   const payload = await response.json().catch(() => ({}))
 
@@ -590,6 +603,85 @@ export async function cancelTeamDecision(decisionId) {
 
 export async function getCampaignTeamDecisions(campaignId) {
   const response = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/team-decisions`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getNotifications(filters = {}) {
+  const response = await fetch(`${API_BASE_URL}/api/notifications${buildQuery(filters)}`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getNotificationSummary() {
+  const response = await fetch(`${API_BASE_URL}/api/notifications/summary`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getNotificationById(notificationId) {
+  const response = await fetch(`${API_BASE_URL}/api/notifications/${notificationId}`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function createNotification(notification) {
+  const response = await fetch(`${API_BASE_URL}/api/notifications`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(notification),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function markNotificationRead(notificationId) {
+  const response = await fetch(`${API_BASE_URL}/api/notifications/${notificationId}/mark-read`, {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function resolveNotification(notificationId) {
+  const response = await fetch(`${API_BASE_URL}/api/notifications/${notificationId}/resolve`, {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function archiveNotification(notificationId) {
+  const response = await fetch(`${API_BASE_URL}/api/notifications/${notificationId}/archive`, {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignNotifications(campaignId, filters = {}) {
+  const response = await fetch(
+    `${API_BASE_URL}/api/campaigns/${campaignId}/notifications${buildQuery(filters)}`,
+  )
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function generateCampaignNotifications(campaignId) {
+  const response = await fetch(`${API_BASE_URL}/api/notifications/generate/campaign/${campaignId}`, {
+    method: 'POST',
+  })
 
   const payload = await parseApiResponse(response)
   return payload.data
