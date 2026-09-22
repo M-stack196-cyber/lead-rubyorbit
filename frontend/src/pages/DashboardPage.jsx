@@ -101,7 +101,9 @@ export function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base text-slate-950">Campaign Overview</CardTitle>
-            <CardDescription>{counts.totalCampaigns || 0} campaign(s) in the workspace.</CardDescription>
+            <CardDescription>
+              {counts.totalCampaigns || 0} campaign(s) in the workspace. Select a row to open campaign detail.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <CampaignOverviewTable campaigns={summary?.recentCampaigns || []} />
@@ -165,7 +167,12 @@ function MetricCard({ icon, label, value }) {
 
 function CampaignOverviewTable({ campaigns }) {
   if (!campaigns.length) {
-    return <EmptyState text="No recent campaigns yet." />
+    return <EmptyState text="No campaigns yet. Create one from Campaigns to begin tracking workflow activity." />
+  }
+
+  function openCampaign(campaignId) {
+    window.sessionStorage.setItem('leadRubyOrbit:selectedCampaignId', campaignId)
+    window.location.hash = 'campaigns'
   }
 
   return (
@@ -181,14 +188,20 @@ function CampaignOverviewTable({ campaigns }) {
           </thead>
           <tbody className="divide-y divide-slate-200 bg-white">
             {campaigns.map((campaign) => (
-              <tr key={campaign.id} className="align-top">
+              <tr
+                key={campaign.id}
+                className="cursor-pointer align-top transition hover:bg-slate-50"
+                onClick={() => openCampaign(campaign.id)}
+              >
                 <td className="min-w-56 px-4 py-3">
                   <p className="font-medium text-slate-950">{campaign.name}</p>
                   <p className="mt-1 line-clamp-2 text-xs text-slate-500">
                     {campaign.description || 'No description'}
                   </p>
                 </td>
-                <td className="whitespace-nowrap px-4 py-3 text-slate-700">{campaign.status}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  <StatusPill value={campaign.status} />
+                </td>
                 <td className="whitespace-nowrap px-4 py-3 text-slate-700">
                   {formatDate(campaign.updated_at)}
                 </td>
@@ -203,7 +216,7 @@ function CampaignOverviewTable({ campaigns }) {
 
 function ActivityList({ items }) {
   if (!items.length) {
-    return <EmptyState text="No activity yet." />
+    return <EmptyState text="No activity yet. As campaigns move through drafts, replies, no-replies, and notifications, events will appear here." />
   }
 
   return (
@@ -212,7 +225,10 @@ function ActivityList({ items }) {
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3" key={item.id}>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="font-medium text-slate-950">{item.title}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-medium text-slate-950">{item.title}</p>
+                <StatusPill value={formatLabel(item.type)} />
+              </div>
               <p className="mt-1 text-sm leading-5 text-slate-600">{item.description}</p>
               {item.campaignName || item.leadName ? (
                 <p className="mt-1 text-xs text-slate-500">
@@ -239,6 +255,14 @@ function InfoTile({ label, value }) {
   )
 }
 
+function StatusPill({ value }) {
+  return (
+    <span className="inline-flex rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700">
+      {value || '-'}
+    </span>
+  )
+}
+
 function EmptyState({ text }) {
   return (
     <div className="rounded-md border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
@@ -254,4 +278,8 @@ function formatDate(value) {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value))
+}
+
+function formatLabel(value) {
+  return String(value || '-').replaceAll('_', ' ')
 }

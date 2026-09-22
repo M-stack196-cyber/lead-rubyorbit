@@ -93,6 +93,19 @@ const defaultReplyDraftForm = {
   rejectedReason: '',
 }
 
+const detailSections = [
+  'dashboard summary',
+  'activity timeline',
+  'lead timeline',
+  'leads',
+  'drafts',
+  'sent emails',
+  'replies',
+  'no-replies',
+  'team decisions',
+  'notifications',
+]
+
 export function CampaignsPage() {
   const [campaigns, setCampaigns] = useState([])
   const [selectedCampaignId, setSelectedCampaignId] = useState('')
@@ -164,7 +177,15 @@ export function CampaignsPage() {
       setCampaigns(campaignList)
       setAvailableLeads(leadList)
 
-      setSelectedCampaignId((currentCampaignId) => currentCampaignId || campaignList[0]?.id || '')
+      setSelectedCampaignId((currentCampaignId) => {
+        if (currentCampaignId) return currentCampaignId
+
+        const storedCampaignId = window.sessionStorage.getItem('leadRubyOrbit:selectedCampaignId')
+        const storedCampaign = campaignList.find((campaign) => campaign.id === storedCampaignId)
+        window.sessionStorage.removeItem('leadRubyOrbit:selectedCampaignId')
+
+        return storedCampaign?.id || campaignList[0]?.id || ''
+      })
     } catch (loadError) {
       setError(loadError.message)
     } finally {
@@ -1344,6 +1365,8 @@ function CampaignDetailCard({
           <InfoTile label="Updated" value={formatDate(campaign.updated_at)} />
         </div>
 
+        <WorkflowGuide sendMode={emailSendingStatus?.mode || 'mock'} />
+
         <CampaignDashboardSummaryPanel summary={campaignDashboardSummary} />
 
         <CampaignActivityPanel items={campaignActivity} />
@@ -1458,6 +1481,34 @@ function CampaignDetailCard({
         <CampaignLeadsTable campaignLeads={campaignLeads} />
       </CardContent>
     </Card>
+  )
+}
+
+function WorkflowGuide({ sendMode }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">Workflow Sections</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            Work through the campaign manually. Approvals do not send emails, and follow-up drafts stay in review.
+          </p>
+        </div>
+        <Badge variant={sendMode === 'live' ? 'destructive' : 'success'}>
+          {sendMode === 'live' ? 'Live send mode' : 'Mock send mode'}
+        </Badge>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {detailSections.map((section) => (
+          <span
+            className="inline-flex rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+            key={section}
+          >
+            {section}
+          </span>
+        ))}
+      </div>
+    </div>
   )
 }
 

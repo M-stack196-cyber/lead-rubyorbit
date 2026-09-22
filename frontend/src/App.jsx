@@ -9,9 +9,14 @@ import { NotificationsPage } from '@/pages/NotificationsPage'
 const pages = {
   campaigns: CampaignsPage,
   dashboard: DashboardPage,
+  drafts: CampaignsPage,
   'email-accounts': EmailAccountsPage,
+  'email-drafts': CampaignsPage,
+  'follow-ups': CampaignsPage,
   'lead-uploads': LeadUploadsPage,
   notifications: NotificationsPage,
+  replies: CampaignsPage,
+  'team-decisions': CampaignsPage,
 }
 
 function getCurrentPage() {

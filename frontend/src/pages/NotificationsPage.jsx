@@ -10,6 +10,20 @@ import {
   resolveNotification,
 } from '@/services/api'
 
+const priorityClasses = {
+  urgent: 'border-red-200 bg-red-50 text-red-700',
+  high: 'border-amber-200 bg-amber-50 text-amber-700',
+  normal: 'border-slate-200 bg-slate-50 text-slate-700',
+  low: 'border-slate-200 bg-white text-slate-600',
+}
+
+const statusClasses = {
+  unread: 'border-red-200 bg-red-50 text-red-700',
+  read: 'border-slate-200 bg-slate-50 text-slate-700',
+  resolved: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  archived: 'border-slate-200 bg-white text-slate-500',
+}
+
 const notificationTypes = [
   'new_reply',
   'no_reply_detected',
@@ -118,7 +132,9 @@ export function NotificationsPage() {
         <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <CardTitle className="text-base text-slate-950">Notification Queue</CardTitle>
-            <CardDescription>{notifications.length} notification(s) in view.</CardDescription>
+            <CardDescription>
+              {notifications.length} notification(s) in view. Actions only change notification state.
+            </CardDescription>
           </div>
           <div className="grid gap-2 sm:grid-cols-3">
             <FilterSelect
@@ -240,7 +256,7 @@ function NotificationsTable({ activeId, notifications, onAction }) {
                   <div className="flex flex-wrap gap-2">
                     <ActionButton
                       icon={CheckCircle2}
-                      label="Read"
+                      label="Mark read"
                       disabled={activeId === notification.id || notification.status !== 'unread'}
                       onClick={() => onAction(notification.id, 'read')}
                     />
@@ -283,8 +299,10 @@ function ActionButton({ disabled, icon, label, onClick }) {
 }
 
 function Pill({ value }) {
+  const classes = statusClasses[value] || priorityClasses[value] || 'border-slate-200 bg-slate-50 text-slate-700'
+
   return (
-    <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+    <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${classes}`}>
       {formatLabel(value)}
     </span>
   )

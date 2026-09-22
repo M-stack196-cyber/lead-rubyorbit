@@ -34,6 +34,7 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 - Phase 15 completed: follow-up creation cycle for no-reply emails.
 - Phase 16 completed: notification system for workflow visibility.
 - Phase 17 completed: dashboard and lead timeline visibility.
+- Phase 18 completed: frontend workflow polish and end-to-end QA checklist.
 
 ## Phase 0 Scope
 
@@ -298,6 +299,18 @@ Phase 17 adds read-only dashboard and timeline visibility only:
 - Campaign detail dashboard summary, activity timeline, and campaign-lead timeline selector
 
 Phase 17 is read-only visibility. It does not automate outreach, send emails, change Gmail OAuth token logic, schedule jobs, or generate AI content.
+
+## Phase 18 Scope
+
+Phase 18 polishes the existing frontend workflows and adds an end-to-end QA checklist:
+
+- Dashboard readability, empty states, campaign navigation, pending actions, and activity presentation
+- Campaign detail organization for dashboard summary, activity timeline, lead timeline, leads, drafts, sent emails, replies, no-replies, decisions, notifications, and follow-up review
+- Clear mock-mode and manual-action messaging for draft, reply, no-reply, follow-up, and notification workflows
+- Sidebar navigation fixes for existing workflow surfaces
+- QA checklist at `docs/phase-18-e2e-qa.md`
+
+Phase 18 does not automate sending, add cron/schedulers, change Gmail OAuth token logic, expose Gmail tokens, or generate AI content.
 
 ## Frontend
 
