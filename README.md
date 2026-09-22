@@ -41,6 +41,7 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 - Phase 22 completed: staging deployment QA checklist, QA results template, and issue log template.
 - Phase 23 completed: production deployment planning documentation, environment checklist, and release checklist.
 - Phase 24 completed: security hardening and access control planning documentation, role matrix, and hardening checklist.
+- Phase 25 completed: authentication and RBAC implementation planning documentation, roadmap, and test plan.
 
 ## Phase 0 Scope
 
@@ -432,6 +433,16 @@ Phase 24 adds security hardening and access control planning documentation only:
 - Security hardening checklist at `docs/security-hardening-checklist.md`
 
 Phase 24 does not add product logic, implement authentication, implement roles, change backend business logic, create migrations, deploy anything, enable real email sending, add mutating email scripts, change Gmail OAuth token logic, add schedulers, or implement AI generation. `EMAIL_SEND_MODE` remains approval-gated and should stay `mock`.
+
+## Phase 25 Auth and RBAC Implementation Planning
+
+Phase 25 adds authentication and RBAC implementation planning documentation only:
+
+- Auth and RBAC implementation plan at `docs/phase-25-auth-rbac-implementation-plan.md`
+- Auth/RBAC roadmap at `docs/auth-rbac-roadmap.md`
+- Auth/RBAC test plan at `docs/auth-rbac-test-plan.md`
+
+Phase 25 does not implement authentication, implement RBAC, add product logic, change backend business logic, create migrations, deploy anything, enable real email sending, add mutating email scripts, change Gmail OAuth token logic, add schedulers, or implement AI generation. `EMAIL_SEND_MODE` remains approval-gated and should stay `mock`.
 
 ## Frontend
 
