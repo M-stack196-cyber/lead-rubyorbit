@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "staging:seed-role-users": "node scripts/seedStagingRoleUsers.js",
+    "staging:verify-role-users": "node scripts/verifyStagingRoleUsers.js",
+    "staging:smoke-role-users": "node scripts/smokeStagingRoleUsers.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.109.0",
@@ -17,6 +20,7 @@
     "googleapis": "^178.0.0",
     "mammoth": "^1.12.3",
     "multer": "^2.4.0",
+    "nodemailer": "^10.0.10",
     "pdf-parse": "^2.4.5",
     "pg": "^8.23.0",
     "ws": "^8.21.3",

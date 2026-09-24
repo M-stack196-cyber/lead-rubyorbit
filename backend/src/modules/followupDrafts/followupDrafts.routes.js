@@ -3,6 +3,7 @@ import { Router } from 'express'
 import {
   createFollowupDraftController,
   createFollowupDraftFromNoReplyController,
+  generateAiFollowupDraftFromNoReplyController,
   getFollowupDraftByIdController,
   listFollowupDraftsController,
 } from './followupDrafts.controller.js'
@@ -46,5 +47,16 @@ followupDraftsRouter.post(
   }),
   requirePermission(permissions.FOLLOWUP_WRITE),
   createFollowupDraftFromNoReplyController,
+)
+followupDraftsRouter.post(
+  '/generate-ai-from-no-reply/:sentEmailId',
+  validateBody({
+    sourceTeamDecisionId: { type: 'string' },
+    tone: { type: 'string', maxLength: 80 },
+    callToAction: { type: 'string', maxLength: 500 },
+    subject: { type: 'string', maxLength: 500 },
+  }),
+  requirePermission(permissions.FOLLOWUP_WRITE),
+  generateAiFollowupDraftFromNoReplyController,
 )
 followupDraftsRouter.get('/:id', getFollowupDraftByIdController)

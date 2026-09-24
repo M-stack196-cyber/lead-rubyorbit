@@ -1,5 +1,6 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
 import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
+import { encryptSecret } from '../../utils/secretCrypto.js'
 
 const allowedProviders = new Set(['smtp', 'gmail', 'outlook', 'custom'])
 const allowedStatuses = new Set(['draft', 'active', 'disabled', 'archived', 'error'])
@@ -32,6 +33,8 @@ const detailSelect = `
   smtp_port,
   smtp_username,
   smtp_secure,
+  encrypted_secret_placeholder,
+  smtp_secret_encrypted,
   notes
 `
 
@@ -105,6 +108,7 @@ function mapEmailAccount(row) {
     smtpPort: row.smtp_port,
     smtpUsername: row.smtp_username,
     smtpSecure: row.smtp_secure,
+    smtpSecretConfigured: Boolean(row.smtp_secret_encrypted || row.encrypted_secret_placeholder),
     notes: row.notes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -135,6 +139,7 @@ export async function createEmailAccount(payload = {}) {
   const dailySendLimit = validateDailySendLimit(payload.dailySendLimit || 50)
   const status = payload.status || 'draft'
   validateStatus(status)
+  const smtpSecret = payload.smtpSecret || payload.secretPlaceholder || ''
 
   const supabase = getSupabaseClient()
   const { data, error: createError } = await supabase
@@ -155,7 +160,8 @@ export async function createEmailAccount(payload = {}) {
       smtp_port: payload.smtpPort ? Number(payload.smtpPort) : null,
       smtp_username: payload.smtpUsername || null,
       smtp_secure: Boolean(payload.smtpSecure),
-      encrypted_secret_placeholder: payload.secretPlaceholder ? 'placeholder_configured' : null,
+      smtp_secret_encrypted: smtpSecret ? encryptSecret(smtpSecret) : null,
+      encrypted_secret_placeholder: smtpSecret ? 'smtp_secret_configured' : null,
       notes: payload.notes || null,
       config: {},
     }))
@@ -232,6 +238,16 @@ export async function updateEmailAccount(accountId, payload = {}) {
 
   if (Object.prototype.hasOwnProperty.call(payload, 'smtpSecure')) {
     updates.smtp_secure = Boolean(payload.smtpSecure)
+  }
+
+  const hasSmtpSecret = Object.prototype.hasOwnProperty.call(payload, 'smtpSecret')
+  const hasLegacySecret = Object.prototype.hasOwnProperty.call(payload, 'secretPlaceholder')
+  if (hasSmtpSecret || hasLegacySecret) {
+    const smtpSecret = payload.smtpSecret || payload.secretPlaceholder || ''
+    if (smtpSecret) {
+      updates.smtp_secret_encrypted = encryptSecret(smtpSecret)
+      updates.encrypted_secret_placeholder = 'smtp_secret_configured'
+    }
   }
 
   if (Object.prototype.hasOwnProperty.call(payload, 'notes')) {

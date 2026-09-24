@@ -51,6 +51,9 @@ export function NotificationsPage() {
   const [notifications, setNotifications] = useState([])
   const [summary, setSummary] = useState(null)
   const [filters, setFilters] = useState(defaultFilters)
+  const [browserPermission, setBrowserPermission] = useState(
+    typeof window !== 'undefined' && 'Notification' in window ? window.Notification.permission : 'unsupported',
+  )
   const [isLoading, setIsLoading] = useState(true)
   const [activeId, setActiveId] = useState('')
   const [error, setError] = useState('')
@@ -85,6 +88,18 @@ export function NotificationsPage() {
       try {
         const payload = JSON.parse(event.data)
         if (payload.type === 'notification.created') {
+          const notification = payload.data
+          if (
+            notification &&
+            browserPermission === 'granted' &&
+            typeof window !== 'undefined' &&
+            'Notification' in window
+          ) {
+            new window.Notification(notification.title || 'LeadRubyOrbit notification', {
+              body: notification.message || 'New workflow notification received.',
+              tag: notification.id,
+            })
+          }
           loadNotifications()
         }
       } catch {
@@ -95,7 +110,24 @@ export function NotificationsPage() {
     return () => {
       socket.close()
     }
-  }, [auth.profile?.workspace?.id, loadNotifications])
+  }, [auth.profile?.workspace?.id, browserPermission, loadNotifications])
+
+  async function handleEnableBrowserNotifications() {
+    setError('')
+
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setBrowserPermission('unsupported')
+      setError('Browser notifications are not supported in this browser.')
+      return
+    }
+
+    try {
+      const permission = await window.Notification.requestPermission()
+      setBrowserPermission(permission)
+    } catch {
+      setError('Browser notification permission could not be requested.')
+    }
+  }
 
   async function handleAction(notificationId, action) {
     setActiveId(notificationId)
@@ -125,15 +157,26 @@ export function NotificationsPage() {
             Review replies, approvals, decisions, and follow-up work that needs team attention.
           </p>
         </div>
-        <button
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-          type="button"
-          onClick={loadNotifications}
-          disabled={isLoading}
-        >
-          <RefreshCcw className="h-4 w-4" aria-hidden="true" />
-          Refresh
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={handleEnableBrowserNotifications}
+            disabled={browserPermission === 'granted' || browserPermission === 'unsupported'}
+          >
+            <Bell className="h-4 w-4" aria-hidden="true" />
+            Browser Alerts: {browserPermission}
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={loadNotifications}
+            disabled={isLoading}
+          >
+            <RefreshCcw className="h-4 w-4" aria-hidden="true" />
+            Refresh
+          </button>
+        </div>
       </header>
 
       {error ? (

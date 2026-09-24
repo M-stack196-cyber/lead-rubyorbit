@@ -6,6 +6,7 @@ import {
 } from '../../middleware/workspace.js'
 
 const allowedStatuses = new Set(['draft', 'active', 'paused', 'completed', 'archived'])
+const allowedLeadOutreachStatuses = new Set(['pending', 'paused', 'stopped'])
 
 function getSupabaseClient() {
   const supabase = createSupabaseServiceClient()
@@ -30,6 +31,14 @@ function validateCampaignStatus(status) {
 function validateCampaignName(name) {
   if (!String(name || '').trim()) {
     const error = new Error('Campaign name is required.')
+    error.statusCode = 400
+    throw error
+  }
+}
+
+function validateLeadOutreachStatus(status) {
+  if (!allowedLeadOutreachStatuses.has(status)) {
+    const error = new Error('Lead outreach status must be pending, paused, or stopped.')
     error.statusCode = 400
     throw error
   }
@@ -338,4 +347,60 @@ export async function listCampaignLeads(campaignId) {
     createdAt: row.created_at,
     lead: row.leads,
   }))
+}
+
+export async function updateCampaignLeadOutreachStatus(campaignId, campaignLeadId, payload = {}) {
+  validateLeadOutreachStatus(payload.outreachStatus)
+  await getCampaignById(campaignId)
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await scopeWorkspace(
+    supabase.from('campaign_leads').update({
+      outreach_status: payload.outreachStatus,
+    }),
+  )
+    .eq('id', campaignLeadId)
+    .eq('campaign_id', campaignId)
+    .select(
+      `
+        id,
+        campaign_id,
+        lead_id,
+        ghl_sync_status,
+        outreach_status,
+        current_step,
+        created_at,
+        leads (
+          id,
+          name,
+          email,
+          phone,
+          company,
+          website,
+          linkedin_url,
+          location,
+          source,
+          status,
+          created_at
+        )
+      `,
+    )
+    .single()
+
+  if (error) {
+    const nextError = new Error(error.code === 'PGRST116' ? 'Campaign lead not found.' : error.message)
+    nextError.statusCode = error.code === 'PGRST116' ? 404 : 500
+    throw nextError
+  }
+
+  return {
+    id: data.id,
+    campaignId: data.campaign_id,
+    leadId: data.lead_id,
+    ghlSyncStatus: data.ghl_sync_status,
+    outreachStatus: data.outreach_status,
+    currentStep: data.current_step,
+    createdAt: data.created_at,
+    lead: data.leads,
+  }
 }

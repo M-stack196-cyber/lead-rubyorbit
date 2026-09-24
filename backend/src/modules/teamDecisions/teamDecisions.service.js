@@ -7,6 +7,9 @@ const allowedDecisionTypes = new Set([
   'create_reply_draft',
   'mark_qualified',
   'continue_later',
+  'interested',
+  'not_interested',
+  'assign_to_team_member',
 ])
 
 const allowedStatuses = new Set(['pending', 'completed', 'cancelled'])
@@ -80,6 +83,24 @@ function validateDecisionType(decisionType) {
   }
 }
 
+async function validateAssignedTeamMember(supabase, assignedTo) {
+  if (!assignedTo) return
+
+  const { data, error } = await scopeWorkspace(
+    supabase.from('team_members').select('id'),
+  )
+    .eq('id', assignedTo)
+    .maybeSingle()
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  if (!data) {
+    throw createHttpError('Assigned team member was not found in this workspace.', 400)
+  }
+}
+
 function validateStatus(status) {
   if (status && !allowedStatuses.has(status)) {
     throw createHttpError('Invalid decision status.', 400)
@@ -143,6 +164,10 @@ function toDecisionInsert(payload = {}) {
 
   const decisionType = payload.decisionType || 'manual_handling'
   validateDecisionType(decisionType)
+
+  if (decisionType === 'assign_to_team_member' && !payload.assignedTo) {
+    throw createHttpError('assignedTo is required when assigning a decision to a team member.', 400)
+  }
 
   return {
     campaign_id: payload.campaignId,
@@ -259,6 +284,9 @@ function outreachStatusForDecision(decisionType) {
     create_reply_draft: 'paused',
     mark_qualified: 'qualified',
     continue_later: 'paused',
+    interested: 'interested',
+    not_interested: 'not_interested',
+    assign_to_team_member: 'assigned',
   }
 
   return statuses[decisionType] || 'paused'
@@ -298,6 +326,7 @@ export async function getTeamDecisionById(decisionId) {
 export async function createTeamDecision(payload = {}) {
   const supabase = getSupabaseClient()
   const insert = toDecisionInsert(payload)
+  await validateAssignedTeamMember(supabase, insert.assigned_to)
 
   if (insert.reply_id) {
     const existing = await findPendingDecisionForReply(supabase, insert.reply_id)
@@ -329,6 +358,9 @@ export async function updateTeamDecision(decisionId, payload = {}) {
   const updates = {}
 
   if (Object.prototype.hasOwnProperty.call(payload, 'decisionType')) {
+    if (payload.decisionType === 'assign_to_team_member' && !payload.assignedTo) {
+      throw createHttpError('assignedTo is required when assigning a decision to a team member.', 400)
+    }
     updates.decision_type = payload.decisionType
     updates.action = payload.decisionType
   }
@@ -342,6 +374,7 @@ export async function updateTeamDecision(decisionId, payload = {}) {
   }
 
   if (Object.prototype.hasOwnProperty.call(payload, 'assignedTo')) {
+    await validateAssignedTeamMember(getSupabaseClient(), payload.assignedTo)
     updates.assigned_to = payload.assignedTo || null
   }
 
@@ -373,6 +406,16 @@ export async function completeTeamDecision(decisionId, payload = {}) {
   const decisionType = payload.decisionType || current.decision_type || current.action
   validateDecisionType(decisionType)
 
+  const assignedTo = Object.prototype.hasOwnProperty.call(payload, 'assignedTo')
+    ? payload.assignedTo || null
+    : current.assigned_to
+
+  if (decisionType === 'assign_to_team_member' && !assignedTo) {
+    throw createHttpError('assignedTo is required when assigning a decision to a team member.', 400)
+  }
+
+  await validateAssignedTeamMember(supabase, assignedTo)
+
   let createdDraft = null
 
   if (decisionType === 'create_reply_draft') {
@@ -387,6 +430,7 @@ export async function completeTeamDecision(decisionId, payload = {}) {
       notes: Object.prototype.hasOwnProperty.call(payload, 'notes')
         ? String(payload.notes || '').trim() || null
         : current.notes,
+      assigned_to: assignedTo,
       resolved_at: new Date().toISOString(),
     }),
   )

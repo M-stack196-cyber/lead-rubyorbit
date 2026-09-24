@@ -39,7 +39,7 @@ const defaultForm = {
   smtpPort: '',
   smtpUsername: '',
   smtpSecure: false,
-  secretPlaceholder: '',
+  smtpSecret: '',
   notes: '',
 }
 
@@ -127,7 +127,7 @@ export function EmailAccountsPage() {
         smtpPort: detail.smtpPort || '',
         smtpUsername: detail.smtpUsername || '',
         smtpSecure: Boolean(detail.smtpSecure),
-        secretPlaceholder: '',
+        smtpSecret: '',
         notes: detail.notes || '',
       })
     } catch (loadError) {
@@ -151,6 +151,7 @@ export function EmailAccountsPage() {
           smtpPort: form.smtpPort ? Number(form.smtpPort) : null,
           smtpUsername: form.smtpUsername,
           smtpSecure: form.smtpSecure,
+          smtpSecret: form.smtpSecret,
           notes: form.notes,
         })
         setSuccess('Email account updated. No email was sent.')
@@ -165,7 +166,7 @@ export function EmailAccountsPage() {
           smtpPort: form.smtpPort ? Number(form.smtpPort) : null,
           smtpUsername: form.smtpUsername,
           smtpSecure: form.smtpSecure,
-          secretPlaceholder: form.secretPlaceholder,
+          smtpSecret: form.smtpSecret,
           notes: form.notes,
         })
         setSuccess('Email account created. Emails are not sent in this phase.')
@@ -314,7 +315,7 @@ function AccountForm({ form, isSaving, onChange, onReset, onSubmit }) {
         <CardTitle className="text-base text-slate-950">
           {isEditing ? 'Edit Account' : 'Create Account'}
         </CardTitle>
-        <CardDescription>Gmail live sending requires Google OAuth connection.</CardDescription>
+        <CardDescription>Live sending supports connected Gmail or configured SMTP accounts.</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="space-y-4" onSubmit={onSubmit}>
@@ -380,11 +381,10 @@ function AccountForm({ form, isSaving, onChange, onReset, onSubmit }) {
             SMTP secure
           </label>
           <FormInput
-            disabled={isEditing}
-            label="Secret/password placeholder"
-            value={form.secretPlaceholder}
-            onChange={(value) => onChange({ ...form, secretPlaceholder: value })}
-            placeholder="Stored as placeholder only"
+            label={isEditing ? 'New SMTP password' : 'SMTP password'}
+            value={form.smtpSecret}
+            onChange={(value) => onChange({ ...form, smtpSecret: value })}
+            placeholder={isEditing ? 'Leave blank to keep existing password' : 'App password or SMTP secret'}
           />
           <div>
             <label className="text-sm font-medium text-slate-700" htmlFor="account-notes">

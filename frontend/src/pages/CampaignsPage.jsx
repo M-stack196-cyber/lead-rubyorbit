@@ -52,9 +52,12 @@ import {
   getLeads,
   getNoReplyMonitoringStatus,
   getReplyMonitoringStatus,
+  generateAiFollowupDraftFromNoReply,
   generateCampaignNotifications,
   generateAiEmailDraft,
   generateCampaignAiEmailDrafts,
+  generateAiReplyDraft,
+  improveEmailDraftWithAi,
   rejectEmailDraft,
   retryFailedGhlSync,
   sendCampaignEmails,
@@ -63,6 +66,7 @@ import {
   submitEmailDraftForApproval,
   syncCampaignToGhl,
   updateCampaign,
+  updateCampaignLeadStatus,
   updateEmailDraft,
 } from '@/services/api'
 
@@ -348,6 +352,25 @@ export function CampaignsPage() {
       setError(saveError.message)
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleCampaignQuickStatus(status) {
+    await handleStatusUpdate(status)
+  }
+
+  async function handleCampaignLeadStatus(campaignLeadId, outreachStatus) {
+    if (!selectedCampaignId || !campaignLeadId) return
+
+    setError('')
+    setSuccess('')
+
+    try {
+      await updateCampaignLeadStatus(selectedCampaignId, campaignLeadId, outreachStatus)
+      setSuccess(`Lead outreach ${outreachStatus}.`)
+      await loadCampaignDetail(selectedCampaignId)
+    } catch (statusError) {
+      setError(statusError.message)
     }
   }
 
@@ -646,6 +669,34 @@ export function CampaignsPage() {
     }
   }
 
+  async function handleImproveSelectedDraft(mode = 'both') {
+    if (!selectedDraftId) return
+
+    setIsAiDraftGenerating(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const improvedDraft = await improveEmailDraftWithAi(selectedDraftId, {
+        mode,
+        tone: 'professional',
+      })
+      setDraftForm({
+        campaignLeadId: improvedDraft.campaignLeadId || draftForm.campaignLeadId,
+        draftType: improvedDraft.draftType || draftForm.draftType,
+        subject: improvedDraft.subject || '',
+        body: improvedDraft.body || '',
+        rejectedReason: '',
+      })
+      setSuccess('Draft improved and kept in review. No email was sent.')
+      await reloadEmailDrafts(selectedCampaignId)
+    } catch (draftError) {
+      setError(draftError.message)
+    } finally {
+      setIsAiDraftGenerating(false)
+    }
+  }
+
   async function handleApproveDraft(draftId = selectedDraftId) {
     if (!draftId) return
 
@@ -832,6 +883,68 @@ export function CampaignsPage() {
     }
   }
 
+  async function handleGenerateAiReplyDraft(replyId) {
+    if (!replyId) return
+
+    setIsReplyDraftSaving(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await generateAiReplyDraft({
+        replyId,
+        tone: 'professional',
+      })
+      setSelectedReplyDraftId(result.draft.id)
+      setReplyDraftForm({
+        subject: result.draft.subject || '',
+        body: result.draft.body || '',
+        rejectedReason: '',
+      })
+      setSuccess(
+        result.alreadyExisting
+          ? 'Existing AI reply draft loaded for approval.'
+          : 'AI reply draft generated and queued for approval.',
+      )
+      await Promise.all([
+        reloadReplyDrafts(selectedCampaignId),
+        reloadCampaignNotifications(selectedCampaignId),
+      ])
+    } catch (draftError) {
+      setError(draftError.message)
+    } finally {
+      setIsReplyDraftSaving(false)
+    }
+  }
+
+  async function handleGenerateAiFollowupDraft(sentEmailId) {
+    if (!sentEmailId) return
+
+    setIsAiDraftGenerating(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await generateAiFollowupDraftFromNoReply(sentEmailId, {
+        tone: 'professional',
+      })
+      setSuccess(
+        result.alreadyExisting
+          ? 'Existing AI follow-up draft is already waiting for review.'
+          : 'AI follow-up draft generated for approval. No email was sent.',
+      )
+      await Promise.all([
+        reloadEmailDrafts(selectedCampaignId),
+        reloadCampaignNotifications(selectedCampaignId),
+        reloadNoReplies(selectedCampaignId),
+      ])
+    } catch (draftError) {
+      setError(draftError.message)
+    } finally {
+      setIsAiDraftGenerating(false)
+    }
+  }
+
   function handleSelectReplyDraft(draft) {
     setSelectedReplyDraftId(draft.id)
     setReplyDraftForm({
@@ -865,6 +978,32 @@ export function CampaignsPage() {
         reloadReplyDrafts(selectedCampaignId),
         reloadCampaignNotifications(selectedCampaignId),
       ])
+    } catch (draftError) {
+      setError(draftError.message)
+    } finally {
+      setIsReplyDraftSaving(false)
+    }
+  }
+
+  async function handleImproveSelectedReplyDraft(mode = 'both') {
+    if (!selectedReplyDraftId) return
+
+    setIsReplyDraftSaving(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const improvedDraft = await improveEmailDraftWithAi(selectedReplyDraftId, {
+        mode,
+        tone: 'professional',
+      })
+      setReplyDraftForm({
+        subject: improvedDraft.subject || '',
+        body: improvedDraft.body || '',
+        rejectedReason: '',
+      })
+      setSuccess('Reply draft improved and kept in review. No email was sent.')
+      await reloadReplyDrafts(selectedCampaignId)
     } catch (draftError) {
       setError(draftError.message)
     } finally {
@@ -959,15 +1098,27 @@ export function CampaignsPage() {
   async function handleCompleteTeamDecision(decisionId, decisionType) {
     if (!decisionId) return
 
+    const assignedTo =
+      decisionType === 'assign_to_team_member'
+        ? window.prompt('Team member ID to assign this decision to')?.trim()
+        : ''
+
+    if (decisionType === 'assign_to_team_member' && !assignedTo) {
+      setError('Team member ID is required to assign this decision.')
+      return
+    }
+
     setActiveDecisionId(decisionId)
     setError('')
     setSuccess('')
 
     try {
-      await completeTeamDecision(decisionId, { decisionType })
+      await completeTeamDecision(decisionId, { decisionType, assignedTo })
       setSuccess(
         decisionType === 'create_reply_draft'
           ? 'Team decision completed. A reply draft was created and no email was sent.'
+          : decisionType === 'assign_to_team_member'
+            ? 'Team decision assigned and completed.'
           : 'Team decision completed.',
       )
       await Promise.all([
@@ -1123,6 +1274,7 @@ export function CampaignsPage() {
           onDraftSelect={handleSelectDraft}
           onGenerateAiDraft={handleGenerateAiDraft}
           onGenerateCampaignAiDrafts={handleGenerateCampaignAiDrafts}
+          onImproveDraft={handleImproveSelectedDraft}
           onEmailAccountChange={setSelectedEmailAccountId}
           onSendCampaignEmails={handleSendCampaignEmails}
           onSendDraft={handleSendDraft}
@@ -1130,6 +1282,8 @@ export function CampaignsPage() {
           onCheckSentEmailReplies={handleCheckSentEmailReplies}
           onCheckCampaignNoReplies={handleCheckCampaignNoReplies}
           onCheckSentEmailNoReply={handleCheckSentEmailNoReply}
+          onGenerateAiReplyDraft={handleGenerateAiReplyDraft}
+          onGenerateAiFollowupDraft={handleGenerateAiFollowupDraft}
           onGenerateCampaignNotifications={handleGenerateCampaignNotifications}
           onCompleteTeamDecision={handleCompleteTeamDecision}
           onCancelTeamDecision={handleCancelTeamDecision}
@@ -1137,6 +1291,7 @@ export function CampaignsPage() {
           onReplyDraftChange={setReplyDraftForm}
           onReplyDraftReject={handleRejectReplyDraft}
           onReplyDraftReset={resetReplyDraftForm}
+          onReplyDraftImprove={handleImproveSelectedReplyDraft}
           onReplyDraftSave={handleSaveReplyDraft}
           onReplyDraftSelect={handleSelectReplyDraft}
           onReplyDraftSend={handleSendReplyDraft}
@@ -1144,6 +1299,8 @@ export function CampaignsPage() {
           onLeadSelection={setSelectedLeadIds}
           onTimelineCampaignLeadChange={handleSelectTimelineCampaignLead}
           onStatusUpdate={handleStatusUpdate}
+          onQuickStatus={handleCampaignQuickStatus}
+          onLeadStatusUpdate={handleCampaignLeadStatus}
         />
       </section>
     </>
@@ -1365,6 +1522,7 @@ function CampaignDetailCard({
   onDraftSelect,
   onGenerateAiDraft,
   onGenerateCampaignAiDrafts,
+  onImproveDraft,
   onEmailAccountChange,
   onLeadSelection,
   onTimelineCampaignLeadChange,
@@ -1374,6 +1532,8 @@ function CampaignDetailCard({
   onCheckSentEmailReplies,
   onCheckCampaignNoReplies,
   onCheckSentEmailNoReply,
+  onGenerateAiReplyDraft,
+  onGenerateAiFollowupDraft,
   onGenerateCampaignNotifications,
   onCompleteTeamDecision,
   onCancelTeamDecision,
@@ -1381,11 +1541,14 @@ function CampaignDetailCard({
   onReplyDraftChange,
   onReplyDraftReject,
   onReplyDraftReset,
+  onReplyDraftImprove,
   onReplyDraftSave,
   onReplyDraftSelect,
   onReplyDraftSend,
   onReplyDraftSubmit,
   onStatusUpdate,
+  onQuickStatus,
+  onLeadStatusUpdate,
 }) {
   if (isDetailLoading) {
     return (
@@ -1417,6 +1580,30 @@ function CampaignDetailCard({
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <StatusBadge status={campaign.status} />
+          <button
+            className="inline-flex min-h-10 items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={() => onQuickStatus('active')}
+            disabled={isSaving || campaign.status === 'active'}
+          >
+            Resume
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700 shadow-sm transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={() => onQuickStatus('paused')}
+            disabled={isSaving || campaign.status === 'paused'}
+          >
+            Pause
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={() => onQuickStatus('completed')}
+            disabled={isSaving || campaign.status === 'completed'}
+          >
+            Stop
+          </button>
           <select
             className="min-h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
             value={campaign.status}
@@ -1480,6 +1667,7 @@ function CampaignDetailCard({
           onChange={onDraftChange}
           onGenerateAiDraft={onGenerateAiDraft}
           onGenerateCampaignAiDrafts={onGenerateCampaignAiDrafts}
+          onImproveDraft={onImproveDraft}
           onReject={onDraftReject}
           onReset={onDraftReset}
           onSave={onDraftSave}
@@ -1507,6 +1695,7 @@ function CampaignDetailCard({
           replyMonitoringStatus={replyMonitoringStatus}
           sentEmails={sentEmails}
           onCheckCampaign={onCheckCampaignReplies}
+          onGenerateAiReplyDraft={onGenerateAiReplyDraft}
         />
 
         <NoReplyMonitoringPanel
@@ -1518,6 +1707,7 @@ function CampaignDetailCard({
           sentEmails={sentEmails}
           status={noReplyMonitoringStatus}
           onCheckCampaign={onCheckCampaignNoReplies}
+          onGenerateAiFollowupDraft={onGenerateAiFollowupDraft}
           onCheckSentEmail={onCheckSentEmailNoReply}
         />
 
@@ -1548,13 +1738,17 @@ function CampaignDetailCard({
           onChange={onReplyDraftChange}
           onReject={onReplyDraftReject}
           onReset={onReplyDraftReset}
+          onImprove={onReplyDraftImprove}
           onSave={onReplyDraftSave}
           onSelect={onReplyDraftSelect}
           onSend={onReplyDraftSend}
           onSubmitForApproval={onReplyDraftSubmit}
         />
 
-        <CampaignLeadsTable campaignLeads={campaignLeads} />
+        <CampaignLeadsTable
+          campaignLeads={campaignLeads}
+          onStatusUpdate={onLeadStatusUpdate}
+        />
       </CardContent>
     </Card>
   )
@@ -1878,6 +2072,7 @@ function EmailDraftsPanel({
   onChange,
   onGenerateAiDraft,
   onGenerateCampaignAiDrafts,
+  onImproveDraft,
   onReject,
   onReset,
   onSave,
@@ -2022,6 +2217,19 @@ function EmailDraftsPanel({
               <Sparkles className="h-4 w-4" aria-hidden="true" />
             )}
             Generate Campaign AI Drafts
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 shadow-sm transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={() => onImproveDraft('both')}
+            disabled={!selectedDraftId || isDraftSaving || isAiDraftGenerating || isApproved}
+          >
+            {isAiDraftGenerating ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+            )}
+            Improve Subject & Grammar
           </button>
           <button
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
@@ -2177,9 +2385,14 @@ function EmailSendingPanel({
   const isLiveMode = emailSendingStatus?.mode === 'live'
   const hasActiveAccount = Boolean(selectedEmailAccountId)
   const liveBlockedReason =
-    isLiveMode && hasActiveAccount && selectedAccount?.provider !== 'gmail'
-      ? 'Live sending supports Gmail accounts only.'
-      : isLiveMode && hasActiveAccount && selectedAccount?.gmailTokenStatus !== 'connected'
+    isLiveMode &&
+    hasActiveAccount &&
+    !['gmail', 'smtp'].includes(selectedAccount?.provider)
+      ? 'Live sending supports Gmail and SMTP accounts only.'
+      : isLiveMode &&
+          hasActiveAccount &&
+          selectedAccount?.provider === 'gmail' &&
+          selectedAccount?.gmailTokenStatus !== 'connected'
         ? 'Gmail must be connected with Google OAuth before live sending.'
         : ''
   const canSend = hasActiveAccount && !liveBlockedReason
@@ -2191,7 +2404,7 @@ function EmailSendingPanel({
           <h3 className="text-sm font-semibold text-slate-950">Send Approved Emails</h3>
           <p className="mt-1 text-sm text-slate-500">
             {isLiveMode
-              ? 'Live mode sends through connected Gmail accounts.'
+              ? 'Live mode sends through connected Gmail or configured SMTP accounts.'
               : 'Mock sending only. Emails are not sent outside LeadRubyOrbit in this mode.'}
           </p>
         </div>
@@ -2233,6 +2446,8 @@ function EmailSendingPanel({
                 {account.dailySendLimit} today
                 {isLiveMode && account.provider === 'gmail'
                   ? ` - Gmail ${account.gmailTokenStatus || 'disconnected'}`
+                  : isLiveMode && account.provider === 'smtp'
+                    ? ' - SMTP configured'
                   : ''}
               </option>
             ))}
@@ -2409,6 +2624,7 @@ function ReplyMonitoringPanel({
   replyMonitoringStatus,
   sentEmails,
   onCheckCampaign,
+  onGenerateAiReplyDraft,
 }) {
   const summary = {
     totalSentEmails: sentEmails.length,
@@ -2478,12 +2694,12 @@ function ReplyMonitoringPanel({
         />
       </div>
 
-      <RepliesTable replies={replies} />
+      <RepliesTable replies={replies} onGenerateAiReplyDraft={onGenerateAiReplyDraft} />
     </div>
   )
 }
 
-function RepliesTable({ replies }) {
+function RepliesTable({ replies, onGenerateAiReplyDraft }) {
   if (!replies.length) {
     return (
       <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
@@ -2505,6 +2721,7 @@ function RepliesTable({ replies }) {
               <th className="px-4 py-3">Preview</th>
               <th className="px-4 py-3">Received</th>
               <th className="px-4 py-3">Sent Status</th>
+              <th className="px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 bg-white">
@@ -2528,6 +2745,16 @@ function RepliesTable({ replies }) {
                 <td className="whitespace-nowrap px-4 py-3">
                   <SyncBadge status={reply.sentEmail?.status || 'replied'} />
                 </td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <button
+                    className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100"
+                    type="button"
+                    onClick={() => onGenerateAiReplyDraft(reply.id)}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                    AI reply draft
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -2546,6 +2773,7 @@ function NoReplyMonitoringPanel({
   sentEmails,
   status,
   onCheckCampaign,
+  onGenerateAiFollowupDraft,
   onCheckSentEmail,
 }) {
   const summary = {
@@ -2614,7 +2842,7 @@ function NoReplyMonitoringPanel({
         onCheckSentEmail={onCheckSentEmail}
       />
 
-      <NoRepliesTable noReplies={noReplies} />
+      <NoRepliesTable noReplies={noReplies} onGenerateAiFollowupDraft={onGenerateAiFollowupDraft} />
     </div>
   )
 }
@@ -2685,7 +2913,7 @@ function NoReplySentEmailsTable({ checkingSentEmailId, sentEmails, onCheckSentEm
   )
 }
 
-function NoRepliesTable({ noReplies }) {
+function NoRepliesTable({ noReplies, onGenerateAiFollowupDraft }) {
   if (!noReplies.length) {
     return (
       <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-500">
@@ -2708,6 +2936,7 @@ function NoRepliesTable({ noReplies }) {
               <th className="px-4 py-3">No-reply marked</th>
               <th className="px-4 py-3">Outreach</th>
               <th className="px-4 py-3">Decision</th>
+              <th className="px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 bg-white">
@@ -2730,6 +2959,16 @@ function NoRepliesTable({ noReplies }) {
                 </td>
                 <td className="whitespace-nowrap px-4 py-3">
                   <DecisionStatusBadge status={row.decision?.status || 'pending'} />
+                </td>
+                <td className="whitespace-nowrap px-4 py-3">
+                  <button
+                    className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100"
+                    type="button"
+                    onClick={() => onGenerateAiFollowupDraft(row.id)}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                    AI follow-up
+                  </button>
                 </td>
               </tr>
             ))}
@@ -2824,6 +3063,7 @@ function ReplyDraftsPanel({
   selectedEmailAccountId,
   onApprove,
   onChange,
+  onImprove,
   onReject,
   onReset,
   onSave,
@@ -2930,6 +3170,19 @@ function ReplyDraftsPanel({
           </div>
 
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <button
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 shadow-sm transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+              type="button"
+              onClick={() => onImprove('both')}
+              disabled={!canEditSelected || isSaving}
+            >
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
+              )}
+              Improve Subject & Grammar
+            </button>
             <button
               className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
               type="submit"
@@ -3100,6 +3353,9 @@ function ReplyDraftsTable({
 }
 
 const decisionActions = [
+  ['interested', 'Interested'],
+  ['not_interested', 'Not interested'],
+  ['assign_to_team_member', 'Assign to team member'],
   ['stop_outreach', 'Stop outreach'],
   ['manual_handling', 'Manual handling'],
   ['create_reply_draft', 'Create reply draft'],
@@ -3334,7 +3590,7 @@ function TeamDecisionsTable({ activeDecisionId, decisions, onCancel, onComplete 
   )
 }
 
-function CampaignLeadsTable({ campaignLeads }) {
+function CampaignLeadsTable({ campaignLeads, onStatusUpdate }) {
   if (!campaignLeads.length) {
     return <EmptyState text="No leads are attached to this campaign yet." />
   }
@@ -3349,6 +3605,7 @@ function CampaignLeadsTable({ campaignLeads }) {
               <th className="px-4 py-3">Company</th>
               <th className="px-4 py-3">Outreach</th>
               <th className="px-4 py-3">Added</th>
+              <th className="px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 bg-white">
@@ -3370,6 +3627,34 @@ function CampaignLeadsTable({ campaignLeads }) {
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-slate-700">
                   {formatDate(row.createdAt)}
+                </td>
+                <td className="min-w-72 px-4 py-3">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      className="inline-flex min-h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      type="button"
+                      onClick={() => onStatusUpdate(row.id, 'pending')}
+                      disabled={row.outreachStatus === 'pending'}
+                    >
+                      Resume
+                    </button>
+                    <button
+                      className="inline-flex min-h-9 items-center justify-center rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 shadow-sm transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      type="button"
+                      onClick={() => onStatusUpdate(row.id, 'paused')}
+                      disabled={row.outreachStatus === 'paused'}
+                    >
+                      Pause
+                    </button>
+                    <button
+                      className="inline-flex min-h-9 items-center justify-center rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      type="button"
+                      onClick={() => onStatusUpdate(row.id, 'stopped')}
+                      disabled={row.outreachStatus === 'stopped'}
+                    >
+                      Stop
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

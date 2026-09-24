@@ -4,6 +4,7 @@ import {
   Bell,
   CircleDashed,
   ClipboardCheck,
+  Download,
   Loader2,
   MailQuestion,
   MessageCircle,
@@ -18,6 +19,7 @@ import {
   getCampaignPerformance,
   getDashboardSummary,
   getSenderPerformance,
+  downloadAnalyticsExport,
 } from '@/services/api'
 
 const metricCards = [
@@ -61,6 +63,16 @@ export function DashboardPage() {
     }
   }
 
+  async function handleDownload(reportType) {
+    setError('')
+
+    try {
+      await downloadAnalyticsExport(reportType)
+    } catch (downloadError) {
+      setError(downloadError.message)
+    }
+  }
+
   useEffect(() => {
     loadDashboardSummary()
   }, [])
@@ -93,6 +105,22 @@ export function DashboardPage() {
             <RefreshCcw className="h-4 w-4" aria-hidden="true" />
           )}
           Refresh
+        </button>
+        <button
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+          type="button"
+          onClick={() => handleDownload('campaigns')}
+        >
+          <Download className="h-4 w-4" aria-hidden="true" />
+          Export Campaigns
+        </button>
+        <button
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+          type="button"
+          onClick={() => handleDownload('senders')}
+        >
+          <Download className="h-4 w-4" aria-hidden="true" />
+          Export Senders
         </button>
       </header>
 

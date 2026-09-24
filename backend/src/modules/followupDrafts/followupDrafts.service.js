@@ -15,6 +15,12 @@ const draftSelect = `
   subject,
   body,
   status,
+  ai_generated,
+  ai_model,
+  ai_prompt,
+  ai_tone,
+  ai_generation_type,
+  ai_source,
   followup_number,
   previous_sent_email_id,
   source_team_decision_id,
@@ -49,6 +55,12 @@ const duplicateDraftSelect = `
   subject,
   body,
   status,
+  ai_generated,
+  ai_model,
+  ai_prompt,
+  ai_tone,
+  ai_generation_type,
+  ai_source,
   followup_number,
   previous_sent_email_id,
   source_team_decision_id,
@@ -123,6 +135,12 @@ function mapDraft(row, extra = {}) {
     subject: row.subject,
     body: row.body,
     status: row.status,
+    aiGenerated: row.ai_generated,
+    aiModel: row.ai_model,
+    aiPrompt: row.ai_prompt,
+    aiTone: row.ai_tone,
+    aiGenerationType: row.ai_generation_type,
+    aiSource: row.ai_source || {},
     followupNumber: row.followup_number,
     previousSentEmailId: row.previous_sent_email_id,
     sourceTeamDecisionId: row.source_team_decision_id,
@@ -193,6 +211,50 @@ function mapCandidate(sentEmail, existingDraft = null, decision = null) {
 function followupSubject(originalSubject = '') {
   const subject = String(originalSubject || '').trim()
   return subject.toLowerCase().startsWith('re:') ? subject : `Re: ${subject || 'Follow up'}`
+}
+
+function firstName(name = '') {
+  return String(name || '').trim().split(/\s+/)[0] || 'there'
+}
+
+function buildAiMetadata({ generationType, tone, prompt, source = {}, model = 'lead-rubyorbit-template-v1' }) {
+  return {
+    ai_model: model,
+    ai_prompt: String(prompt || '').trim() || null,
+    ai_tone: String(tone || 'professional').trim().toLowerCase(),
+    ai_generation_type: generationType,
+    ai_source: source,
+  }
+}
+
+function buildAiFollowupCopy(sentEmail, payload = {}) {
+  const tone = String(payload.tone || 'professional').trim().toLowerCase()
+  const leadName = firstName(sentEmail.leads?.name)
+  const subject = String(payload.subject || followupSubject(sentEmail.subject)).trim()
+  const callToAction = String(
+    payload.callToAction || 'Would it be useful to compare notes for 15 minutes this week?',
+  ).trim()
+  const opener = tone === 'friendly' ? `Hi ${leadName},` : `Hello ${leadName},`
+  const context = sentEmail.leads?.company
+    ? `I wanted to follow up on my note about ${sentEmail.leads.company}.`
+    : 'I wanted to follow up on my previous note.'
+
+  return {
+    subject,
+    body: [
+      opener,
+      '',
+      context,
+      'I know timing can be busy, so I wanted to bring this back to the top of your inbox with a clearer next step.',
+      '',
+      callToAction,
+      '',
+      'Best,',
+      '{{senderName}}',
+    ].join('\n'),
+    prompt: `Generate ${tone} follow-up draft for no-reply sent email ${sentEmail.id}.`,
+    tone,
+  }
 }
 
 async function getFollowupDraftRowById(supabase, draftId) {
@@ -420,6 +482,20 @@ export async function createFollowupDraft(payload = {}) {
   const followupNumber = await getNextFollowupNumber(supabase, payload.campaignLeadId)
   const subject = String(payload.subject || followupSubject(sentEmail.subject)).trim()
   const body = String(payload.body || defaultFollowupBody).trim()
+  const aiMetadata = payload.aiGenerated
+    ? buildAiMetadata({
+        generationType: 'follow_up',
+        tone: payload.tone,
+        prompt: payload.aiPrompt,
+        source: {
+          sentEmailId: sentEmail.id,
+          campaignId: sentEmail.campaign_id,
+          campaignLeadId: sentEmail.campaign_lead_id,
+          leadId: sentEmail.lead_id,
+          sourceTeamDecisionId: payload.sourceTeamDecisionId || null,
+        },
+      })
+    : {}
 
   const { data, error } = await supabase
     .from('email_drafts')
@@ -435,8 +511,9 @@ export async function createFollowupDraft(payload = {}) {
       previous_sent_email_id: sentEmail.id,
       source_no_reply_sent_email_id: sentEmail.id,
       source_team_decision_id: payload.sourceTeamDecisionId || null,
-      ai_generated: false,
-      manual_created: true,
+      ai_generated: Boolean(payload.aiGenerated),
+      manual_created: !payload.aiGenerated,
+      ...aiMetadata,
       created_by: null,
     }))
     .select(duplicateDraftSelect)
@@ -497,5 +574,23 @@ export async function createFollowupDraftFromNoReply(sentEmailId, payload = {}) 
     sourceTeamDecisionId: decision?.id,
     subject: payload.subject,
     body: payload.body,
+    aiGenerated: payload.aiGenerated,
+    aiPrompt: payload.aiPrompt,
+    tone: payload.tone,
+  })
+}
+
+export async function generateAiFollowupDraftFromNoReply(sentEmailId, payload = {}) {
+  const supabase = getSupabaseClient()
+  const sentEmail = await getNoReplySentEmail(supabase, sentEmailId)
+  const copy = buildAiFollowupCopy(sentEmail, payload)
+
+  return createFollowupDraftFromNoReply(sentEmail.id, {
+    ...payload,
+    subject: copy.subject,
+    body: copy.body,
+    aiGenerated: true,
+    aiPrompt: copy.prompt,
+    tone: copy.tone,
   })
 }

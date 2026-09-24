@@ -194,3 +194,56 @@ export async function getSenderPerformance() {
     }),
   )
 }
+
+function csvEscape(value) {
+  if (value === null || value === undefined) return ''
+  const text = typeof value === 'object' ? JSON.stringify(value) : String(value)
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+function toCsv(rows, columns) {
+  return [
+    columns.map((column) => csvEscape(column.label)).join(','),
+    ...rows.map((row) => columns.map((column) => csvEscape(column.value(row))).join(',')),
+  ].join('\n')
+}
+
+export async function exportAnalyticsReport(reportType = 'campaigns') {
+  if (reportType === 'senders') {
+    const rows = await getSenderPerformance()
+    return {
+      filename: `lead-rubyorbit-sender-performance-${new Date().toISOString().slice(0, 10)}.csv`,
+      csv: toCsv(rows, [
+        { label: 'Sender Email', value: (row) => row.emailAddress },
+        { label: 'Provider', value: (row) => row.provider },
+        { label: 'Status', value: (row) => row.status },
+        { label: 'Enabled', value: (row) => row.enabled },
+        { label: 'Sent Emails', value: (row) => row.sentEmails },
+        { label: 'Replies', value: (row) => row.replies },
+        { label: 'No Replies', value: (row) => row.noReplies },
+        { label: 'Reply Rate', value: (row) => row.rates.replyRate },
+        { label: 'No Reply Rate', value: (row) => row.rates.noReplyRate },
+      ]),
+    }
+  }
+
+  const rows = await getCampaignPerformance()
+  return {
+    filename: `lead-rubyorbit-campaign-performance-${new Date().toISOString().slice(0, 10)}.csv`,
+    csv: toCsv(rows, [
+      { label: 'Campaign Name', value: (row) => row.campaignName },
+      { label: 'Status', value: (row) => row.status },
+      { label: 'Leads', value: (row) => row.leads },
+      { label: 'Sent Emails', value: (row) => row.sentEmails },
+      { label: 'Replies', value: (row) => row.replies },
+      { label: 'No Replies', value: (row) => row.noReplies },
+      { label: 'Drafts', value: (row) => row.drafts },
+      { label: 'Approved Drafts', value: (row) => row.approvedDrafts },
+      { label: 'AI Drafts', value: (row) => row.aiDrafts },
+      { label: 'Send Rate', value: (row) => row.rates.sendRate },
+      { label: 'Reply Rate', value: (row) => row.rates.replyRate },
+      { label: 'No Reply Rate', value: (row) => row.rates.noReplyRate },
+      { label: 'Draft Approval Rate', value: (row) => row.rates.draftApprovalRate },
+    ]),
+  }
+}

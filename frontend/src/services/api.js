@@ -123,6 +123,27 @@ export async function getSenderPerformance() {
   return payload.data
 }
 
+export async function downloadAnalyticsExport(reportType) {
+  const response = await fetch(`${API_BASE_URL}/api/analytics/exports/${reportType}`)
+
+  if (!response.ok) {
+    await parseApiResponse(response)
+  }
+
+  const blob = await response.blob()
+  const disposition = response.headers.get('Content-Disposition') || ''
+  const filenameMatch = disposition.match(/filename="([^"]+)"/)
+  const filename = filenameMatch?.[1] || `lead-rubyorbit-${reportType}-report.csv`
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
 export function getNotificationRealtimeUrl(workspaceId) {
   const url = new URL('/api/notifications/realtime', API_BASE_URL)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -231,6 +252,19 @@ export async function updateCampaign(campaignId, campaign) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(campaign),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function updateCampaignLeadStatus(campaignId, campaignLeadId, outreachStatus) {
+  const response = await fetch(`${API_BASE_URL}/api/campaigns/${campaignId}/leads/${campaignLeadId}/status`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ outreachStatus }),
   })
 
   const payload = await parseApiResponse(response)
@@ -349,6 +383,19 @@ export async function generateAiEmailDraft(draftRequest) {
   return payload.data
 }
 
+export async function generateAiReplyDraft(draftRequest) {
+  const response = await fetch(`${API_BASE_URL}/api/email-drafts/generate-ai/reply`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(draftRequest),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
 export async function generateCampaignAiEmailDrafts(campaignId, draftRequest = {}) {
   const response = await fetch(`${API_BASE_URL}/api/email-drafts/generate-ai/campaign/${campaignId}`, {
     method: 'POST',
@@ -356,6 +403,19 @@ export async function generateCampaignAiEmailDrafts(campaignId, draftRequest = {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(draftRequest),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function improveEmailDraftWithAi(draftId, request = {}) {
+  const response = await fetch(`${API_BASE_URL}/api/email-drafts/${draftId}/ai-improve`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
   })
 
   const payload = await parseApiResponse(response)
@@ -571,6 +631,68 @@ export async function runAutomationNow(options = {}) {
   return payload.data
 }
 
+export async function getWorkflowSettings() {
+  const response = await fetch(`${API_BASE_URL}/api/workflow-settings`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getTeamMembers() {
+  const response = await fetch(`${API_BASE_URL}/api/team-members`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function createTeamMember(member) {
+  const response = await fetch(`${API_BASE_URL}/api/team-members`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(member),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function updateTeamMember(memberId, member) {
+  const response = await fetch(`${API_BASE_URL}/api/team-members/${memberId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(member),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function deleteTeamMember(memberId) {
+  const response = await fetch(`${API_BASE_URL}/api/team-members/${memberId}`, {
+    method: 'DELETE',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function updateWorkflowSettings(settings) {
+  const response = await fetch(`${API_BASE_URL}/api/workflow-settings`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(settings),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
 export async function sendEmailDraft(draftId, emailAccountId) {
   const response = await fetch(`${API_BASE_URL}/api/email-sending/send-draft/${draftId}`, {
     method: 'POST',
@@ -719,6 +841,19 @@ export async function createFollowupDraft(draft) {
 
 export async function createFollowupDraftFromNoReply(sentEmailId, draft = {}) {
   const response = await fetch(`${API_BASE_URL}/api/followup-drafts/create-from-no-reply/${sentEmailId}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(draft),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function generateAiFollowupDraftFromNoReply(sentEmailId, draft = {}) {
+  const response = await fetch(`${API_BASE_URL}/api/followup-drafts/generate-ai-from-no-reply/${sentEmailId}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

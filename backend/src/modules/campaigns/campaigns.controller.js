@@ -5,6 +5,7 @@ import {
   listCampaignLeads,
   listCampaigns,
   updateCampaign,
+  updateCampaignLeadOutreachStatus,
 } from './campaigns.service.js'
 
 export async function listCampaignsController(_req, res, next) {
@@ -78,6 +79,23 @@ export async function listCampaignLeadsController(req, res, next) {
 
     res.json({
       message: 'Campaign leads fetched successfully.',
+      data: result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function updateCampaignLeadOutreachStatusController(req, res, next) {
+  try {
+    const result = await updateCampaignLeadOutreachStatus(
+      req.params.campaignId,
+      req.params.campaignLeadId,
+      req.body,
+    )
+
+    res.json({
+      message: 'Campaign lead outreach status updated successfully.',
       data: result,
     })
   } catch (error) {

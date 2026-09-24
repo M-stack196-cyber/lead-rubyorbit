@@ -20,6 +20,9 @@ const decisionTypeValues = [
   'create_reply_draft',
   'mark_qualified',
   'continue_later',
+  'interested',
+  'not_interested',
+  'assign_to_team_member',
 ]
 const decisionStatusValues = ['pending', 'completed', 'cancelled']
 const decisionBodySchema = {

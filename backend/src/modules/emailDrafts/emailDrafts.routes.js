@@ -4,8 +4,10 @@ import {
   approveEmailDraftController,
   createEmailDraftController,
   generateAiEmailDraftController,
+  generateAiReplyDraftController,
   generateCampaignAiEmailDraftsController,
   getEmailDraftByIdController,
+  improveEmailDraftWithAiController,
   listEmailDraftsController,
   listReplyDraftsController,
   rejectEmailDraftController,
@@ -76,6 +78,19 @@ emailDraftsRouter.post(
   auditAction('email_draft.ai_generate_campaign', 'campaign', (req) => req.params.campaignId),
   generateCampaignAiEmailDraftsController,
 )
+emailDraftsRouter.post(
+  '/generate-ai/reply',
+  validateBody({
+    replyId: { type: 'string', required: true },
+    tone: { type: 'string', maxLength: 80 },
+    intent: { type: 'string', maxLength: 1000 },
+    subject: { type: 'string', maxLength: 500 },
+    regenerate: { type: 'boolean' },
+  }),
+  requirePermission(permissions.EMAIL_DRAFT_WRITE),
+  auditAction('email_draft.ai_generate_reply', 'reply'),
+  generateAiReplyDraftController,
+)
 emailDraftsRouter.get('/:id', getEmailDraftByIdController)
 emailDraftsRouter.patch(
   '/:id',
@@ -83,6 +98,16 @@ emailDraftsRouter.patch(
   requirePermission(permissions.EMAIL_DRAFT_WRITE),
   auditAction('email_draft.update', 'email_draft', (req) => req.params.id),
   updateEmailDraftController,
+)
+emailDraftsRouter.post(
+  '/:id/ai-improve',
+  validateBody({
+    mode: { type: 'string', enum: ['subject', 'grammar', 'both'] },
+    tone: { type: 'string', maxLength: 80 },
+  }),
+  requirePermission(permissions.EMAIL_DRAFT_WRITE),
+  auditAction('email_draft.ai_improve', 'email_draft', (req) => req.params.id),
+  improveEmailDraftWithAiController,
 )
 emailDraftsRouter.post(
   '/:id/submit-for-approval',

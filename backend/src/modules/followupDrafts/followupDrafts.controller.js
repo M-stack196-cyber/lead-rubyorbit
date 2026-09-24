@@ -1,6 +1,7 @@
 import {
   createFollowupDraft,
   createFollowupDraftFromNoReply,
+  generateAiFollowupDraftFromNoReply,
   getFollowupDraftById,
   listFollowupCandidates,
   listFollowupDrafts,
@@ -51,6 +52,21 @@ export async function createFollowupDraftFromNoReplyController(req, res, next) {
       message: result.alreadyExisting
         ? 'Existing unsent follow-up draft returned.'
         : 'Follow-up draft created from no-reply sent email successfully.',
+      data: result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function generateAiFollowupDraftFromNoReplyController(req, res, next) {
+  try {
+    const result = await generateAiFollowupDraftFromNoReply(req.params.sentEmailId, req.body)
+
+    res.status(result.alreadyExisting ? 200 : 201).json({
+      message: result.alreadyExisting
+        ? 'Existing unsent AI follow-up draft returned.'
+        : 'AI follow-up draft generated from no-reply sent email successfully.',
       data: result,
     })
   } catch (error) {

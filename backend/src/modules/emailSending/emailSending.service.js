@@ -2,6 +2,7 @@ import { env } from '../../config/env.js'
 import { createSupabaseServiceClient } from '../../config/supabase.js'
 import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
 import { sendGmailMessage } from '../gmail/gmail.sender.js'
+import { sendSmtpMessage } from '../smtp/smtp.sender.js'
 import { sendMockEmail } from './emailSending.mockSender.js'
 
 const draftSelect = `
@@ -39,7 +40,12 @@ const accountSelect = `
   gmail_token_status,
   gmail_refresh_token_encrypted,
   gmail_access_token_encrypted,
-  gmail_token_expires_at
+  gmail_token_expires_at,
+  smtp_host,
+  smtp_port,
+  smtp_username,
+  smtp_secure,
+  smtp_secret_encrypted
 `
 
 const sentEmailSelect = `
@@ -154,7 +160,7 @@ export function getEmailSendingStatus() {
     realSendingEnabled: isLive,
     liveApproved: env.emailSend.liveApproved,
     message: isLive
-      ? 'Live Gmail sending mode active. Connected Gmail accounts can send real emails.'
+      ? 'Live sending mode active. Connected Gmail and configured SMTP accounts can send real emails.'
       : requestedMode === 'live'
         ? 'Live mode was requested but EMAIL_SEND_LIVE_APPROVED is not true. No real emails are sent.'
         : 'Mock sending mode active. No real emails are sent.',
@@ -307,12 +313,19 @@ async function releaseSendSlot(supabase, account, reservation) {
 }
 
 function validateLiveEmailAccount(account) {
-  if (account.provider !== 'gmail') {
-    throw createHttpError('Live email sending only supports Gmail accounts in this phase.', 400)
+  if (account.provider === 'gmail' && account.gmail_token_status !== 'connected') {
+    throw createHttpError('Gmail must be connected with Google OAuth before live sending.', 400)
   }
 
-  if (account.gmail_token_status !== 'connected') {
-    throw createHttpError('Gmail must be connected with Google OAuth before live sending.', 400)
+  if (account.provider === 'smtp') {
+    if (!account.smtp_host || !account.smtp_port || !account.smtp_secret_encrypted) {
+      throw createHttpError('SMTP account must include host, port, and password before live sending.', 400)
+    }
+    return
+  }
+
+  if (account.provider !== 'gmail') {
+    throw createHttpError('Live email sending supports Gmail and SMTP accounts only.', 400)
   }
 }
 
@@ -325,6 +338,10 @@ async function sendDraftThroughProvider(draft, account) {
   }
 
   validateLiveEmailAccount(account)
+  if (account.provider === 'smtp') {
+    return sendSmtpMessage({ account, draft })
+  }
+
   return sendGmailMessage({ account, draft })
 }
 

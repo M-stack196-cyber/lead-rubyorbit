@@ -28,6 +28,7 @@ const emailAccountBodySchema = {
   smtpPort: { type: 'number', min: 1, max: 65535 },
   smtpUsername: { type: 'string', maxLength: 255 },
   smtpSecure: { type: 'boolean' },
+  smtpSecret: { type: 'string', maxLength: 2000 },
   secretPlaceholder: { type: 'string', maxLength: 500 },
   notes: { type: 'string', maxLength: 2000 },
 }

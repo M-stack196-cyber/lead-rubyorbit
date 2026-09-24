@@ -6,6 +6,7 @@ import {
   getCampaignByIdController,
   listCampaignLeadsController,
   listCampaignsController,
+  updateCampaignLeadOutreachStatusController,
   updateCampaignController,
 } from './campaigns.controller.js'
 import {
@@ -57,6 +58,15 @@ campaignsRouter.post(
   addLeadsToCampaignController,
 )
 campaignsRouter.get('/:id/leads', listCampaignLeadsController)
+campaignsRouter.patch(
+  '/:campaignId/leads/:campaignLeadId/status',
+  validateBody({
+    outreachStatus: { type: 'string', enum: ['pending', 'paused', 'stopped'], required: true },
+  }),
+  requirePermission(permissions.CAMPAIGN_WRITE),
+  auditAction('campaign.lead_status.update', 'campaign_lead', (req) => req.params.campaignLeadId),
+  updateCampaignLeadOutreachStatusController,
+)
 campaignsRouter.get('/:campaignId/email-drafts', listCampaignEmailDraftsController)
 campaignsRouter.get('/:campaignId/reply-drafts', listCampaignReplyDraftsController)
 campaignsRouter.get('/:campaignId/followup-drafts', listCampaignFollowupDraftsController)

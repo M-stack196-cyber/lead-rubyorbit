@@ -18,6 +18,7 @@ export const permissions = {
   AUTOMATION_MANAGE: 'automation:manage',
   ANALYTICS_READ: 'analytics:read',
   AUDIT_LOG_READ: 'audit_log:read',
+  TEAM_MEMBER_MANAGE: 'team_member:manage',
 }
 
 const rolePermissions = {

@@ -1,6 +1,7 @@
 import { env } from '../../config/env.js'
 import { createSupabaseServiceClient } from '../../config/supabase.js'
 import { sendGmailMessage } from '../gmail/gmail.sender.js'
+import { sendSmtpMessage } from '../smtp/smtp.sender.js'
 import { sendMockEmail } from '../emailSending/emailSending.mockSender.js'
 import { createNotificationIfMissing } from '../notifications/notifications.service.js'
 import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
@@ -64,7 +65,12 @@ const accountSelect = `
   gmail_token_status,
   gmail_refresh_token_encrypted,
   gmail_access_token_encrypted,
-  gmail_token_expires_at
+  gmail_token_expires_at,
+  smtp_host,
+  smtp_port,
+  smtp_username,
+  smtp_secure,
+  smtp_secret_encrypted
 `
 
 function getSupabaseClient() {
@@ -127,7 +133,12 @@ function mapDraft(row) {
     body: row.body,
     status: row.status,
     aiGenerated: row.ai_generated,
-    createdBy: row.created_by,
+  createdBy: row.created_by,
+    aiModel: row.ai_model,
+    aiPrompt: row.ai_prompt,
+    aiTone: row.ai_tone,
+    aiGenerationType: row.ai_generation_type,
+    aiSource: row.ai_source || {},
     approvedBy: row.approved_by,
     approvedAt: row.approved_at,
     rejectedReason: row.rejected_reason,
@@ -173,6 +184,11 @@ const draftSelect = `
   body,
   status,
   ai_generated,
+  ai_model,
+  ai_prompt,
+  ai_tone,
+  ai_generation_type,
+  ai_source,
   created_by,
   approved_by,
   approved_at,
@@ -195,6 +211,7 @@ const draftSelect = `
     id,
     subject,
     from_email,
+    body_preview,
     received_at
   )
 `
@@ -390,6 +407,63 @@ function buildAiDraftCopy({ campaign, lead, payload = {} }) {
   }
 }
 
+function buildAiMetadata({ generationType, tone, prompt, source = {}, model = 'lead-rubyorbit-template-v1' }) {
+  return {
+    ai_model: model,
+    ai_prompt: String(prompt || '').trim() || null,
+    ai_tone: String(tone || 'professional').trim().toLowerCase(),
+    ai_generation_type: generationType,
+    ai_source: source,
+  }
+}
+
+function normalizeReplySubject(subject = '') {
+  const value = String(subject || '').trim()
+  return value.toLowerCase().startsWith('re:') ? value : `Re: ${value || 'Reply'}`
+}
+
+function improveSubject(subject = '', fallback = 'Quick follow up') {
+  const raw = String(subject || fallback).replace(/\s+/g, ' ').trim()
+  const withoutSpam = raw.replace(/\b(urgent|free|guaranteed|act now)\b/gi, '').replace(/\s{2,}/g, ' ').trim()
+  return withoutSpam || fallback
+}
+
+function improveBodyGrammar(body = '') {
+  return String(body || '')
+    .split('\n')
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\bi\b/g, 'I')
+    .trim()
+}
+
+function buildAiReplyCopy({ reply, payload = {} }) {
+  const tone = String(payload.tone || 'professional').trim().toLowerCase()
+  const subject = improveSubject(payload.subject || normalizeReplySubject(reply.subject || reply.sent_emails?.subject))
+  const preview = String(reply.body_preview || '').trim()
+  const opener = tone === 'friendly' ? 'Hi there,' : 'Hello,'
+  const intentLine = payload.intent
+    ? `Thanks for the note. Based on your message, I want to respond around: ${payload.intent}.`
+    : 'Thanks for the note. I appreciate you getting back to me.'
+
+  return {
+    subject,
+    body: [
+      opener,
+      '',
+      intentLine,
+      preview ? `I saw your point about "${preview.slice(0, 160)}".` : '',
+      'A helpful next step would be to confirm priorities and decide whether a short conversation makes sense.',
+      '',
+      'Best,',
+      '{{senderName}}',
+    ].filter(Boolean).join('\n'),
+    prompt: `Generate ${tone} reply draft for reply ${reply.id}. Intent: ${payload.intent || 'continue conversation'}.`,
+    tone,
+  }
+}
+
 async function getCampaignLeadForAiDraft(supabase, campaignLeadId) {
   const { data, error } = await scopeWorkspace(
     supabase.from('campaign_leads').select(campaignLeadAiSelect),
@@ -465,6 +539,16 @@ export async function generateAiEmailDraft(payload = {}) {
       status: 'pending_approval',
       manual_created: false,
       ai_generated: true,
+      ...buildAiMetadata({
+        generationType: 'primary_outreach',
+        tone: payload.tone,
+        prompt: `Generate primary outreach draft for campaign lead ${campaignLead.id}. Goal: ${payload.goal || campaignLead.campaigns?.description || ''}.`,
+        source: {
+          campaignId: campaignLead.campaign_id,
+          campaignLeadId: campaignLead.id,
+          leadId: campaignLead.lead_id,
+        },
+      }),
       created_by: null,
     }))
     .select(draftSelect)
@@ -478,6 +562,169 @@ export async function generateAiEmailDraft(payload = {}) {
     draft: mapDraft(data),
     alreadyExisting: false,
   }
+}
+
+async function getReplyForAiDraft(supabase, replyId) {
+  const { data, error } = await scopeWorkspace(
+    supabase.from('replies').select(`
+      id,
+      sent_email_id,
+      campaign_id,
+      lead_id,
+      campaign_lead_id,
+      subject,
+      body_preview,
+      from_email,
+      received_at,
+      leads (
+        id,
+        name,
+        email,
+        company
+      ),
+      sent_emails (
+        id,
+        subject
+      )
+    `),
+  )
+    .eq('id', replyId)
+    .single()
+
+  if (error) {
+    throw createHttpError(
+      error.code === 'PGRST116' ? 'Reply not found.' : error.message,
+      error.code === 'PGRST116' ? 404 : 500,
+    )
+  }
+
+  return data
+}
+
+async function getExistingAiReplyDraft(supabase, replyId) {
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_drafts').select(draftSelect),
+  )
+    .eq('reply_id', replyId)
+    .eq('type', 'reply')
+    .eq('ai_generated', true)
+    .in('status', ['saved', 'pending_approval', 'approved'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  return data
+}
+
+export async function generateAiReplyDraft(payload = {}) {
+  validateRequired(payload.replyId, 'replyId is required.')
+
+  const supabase = getSupabaseClient()
+  const reply = await getReplyForAiDraft(supabase, payload.replyId)
+
+  if (!payload.regenerate) {
+    const existingDraft = await getExistingAiReplyDraft(supabase, reply.id)
+
+    if (existingDraft) {
+      return {
+        draft: mapDraft(existingDraft),
+        alreadyExisting: true,
+      }
+    }
+  }
+
+  const copy = buildAiReplyCopy({ reply, payload })
+
+  const { data, error } = await supabase
+    .from('email_drafts')
+    .insert(withWorkspaceFields({
+      campaign_id: reply.campaign_id,
+      lead_id: reply.lead_id,
+      campaign_lead_id: reply.campaign_lead_id,
+      reply_id: reply.id,
+      sent_email_id: reply.sent_email_id,
+      type: 'reply',
+      subject: copy.subject,
+      body: copy.body,
+      status: 'pending_approval',
+      manual_created: false,
+      ai_generated: true,
+      ...buildAiMetadata({
+        generationType: 'reply',
+        tone: copy.tone,
+        prompt: copy.prompt,
+        source: {
+          replyId: reply.id,
+          sentEmailId: reply.sent_email_id,
+          campaignId: reply.campaign_id,
+          campaignLeadId: reply.campaign_lead_id,
+          leadId: reply.lead_id,
+        },
+      }),
+      created_by: null,
+    }))
+    .select(draftSelect)
+    .single()
+
+  if (error) {
+    throw createHttpError(error.message, error.code === '23503' ? 400 : 500)
+  }
+
+  const mappedDraft = mapDraft(data)
+  await safelyCreateDraftNotification(mappedDraft, 'reply_draft_pending_approval')
+
+  return {
+    draft: mappedDraft,
+    alreadyExisting: false,
+  }
+}
+
+export async function improveEmailDraftWithAi(draftId, payload = {}) {
+  const currentDraft = await getEmailDraftById(draftId)
+
+  if (!['saved', 'rejected', 'pending_approval'].includes(currentDraft.status)) {
+    throw createHttpError('Only saved, rejected, or pending approval drafts can be improved.', 400)
+  }
+
+  const mode = String(payload.mode || 'grammar').trim().toLowerCase()
+  const tone = String(payload.tone || currentDraft.aiTone || 'professional').trim().toLowerCase()
+  const subject = mode === 'subject' || mode === 'both'
+    ? improveSubject(currentDraft.subject)
+    : currentDraft.subject
+  const body = mode === 'grammar' || mode === 'both'
+    ? improveBodyGrammar(currentDraft.body)
+    : currentDraft.body
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_drafts').update({
+      subject,
+      body,
+      ai_generated: true,
+      ...buildAiMetadata({
+        generationType: mode === 'subject' ? 'subject_improvement' : 'grammar_improvement',
+        tone,
+        prompt: `Improve ${mode} for draft ${draftId}.`,
+        source: {
+          draftId,
+          previousGenerationType: currentDraft.aiGenerationType || null,
+        },
+      }),
+    }),
+  )
+    .eq('id', draftId)
+    .select(draftSelect)
+    .single()
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  return mapDraft(data)
 }
 
 export async function generateCampaignAiEmailDrafts(campaignId, payload = {}) {
@@ -842,12 +1089,19 @@ async function reserveSendSlot(supabase, account) {
 }
 
 function validateLiveAccount(account) {
-  if (account.provider !== 'gmail') {
-    throw createHttpError('Live reply sending only supports Gmail accounts in this phase.', 400)
+  if (account.provider === 'gmail' && account.gmail_token_status !== 'connected') {
+    throw createHttpError('Gmail must be connected with Google OAuth before live sending.', 400)
   }
 
-  if (account.gmail_token_status !== 'connected') {
-    throw createHttpError('Gmail must be connected with Google OAuth before live sending.', 400)
+  if (account.provider === 'smtp') {
+    if (!account.smtp_host || !account.smtp_port || !account.smtp_secret_encrypted) {
+      throw createHttpError('SMTP account must include host, port, and password before live sending.', 400)
+    }
+    return
+  }
+
+  if (account.provider !== 'gmail') {
+    throw createHttpError('Live reply sending supports Gmail and SMTP accounts only.', 400)
   }
 }
 
@@ -905,6 +1159,19 @@ async function sendReplyThroughProvider(draft, account) {
   }
 
   validateLiveAccount(account)
+  if (account.provider === 'smtp') {
+    return sendSmtpMessage({
+      account,
+      draft: {
+        campaign_lead_id: draft.campaignLeadId,
+        lead_id: draft.leadId,
+        subject: draft.subject,
+        body: draft.body,
+        lead: draft.lead,
+      },
+    })
+  }
+
   return sendGmailMessage({
     account,
     draft: {
