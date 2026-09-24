@@ -4,7 +4,9 @@ LeadRubyOrbit — AI-Assisted Lead Outreach & Follow-up Management System
 
 ## Overview
 
-LeadRubyOrbit is planned as a lead outreach and follow-up management platform for teams. Future phases will support lead uploads, workflow syncing, email draft approval, sending, reply checks, follow-up pausing, notifications, and team decisions.
+LeadRubyOrbit is a controlled lead outreach and follow-up management platform for teams. The current codebase supports lead intake, campaign workflows, draft review, mock-safe sending, Gmail OAuth/reply monitoring, no-reply handling, follow-up draft review, team decisions, notifications, analytics, auth/RBAC, workspace scoping, and production-security foundations.
+
+The project is ready for local demo and staging validation. It is not production-live until migrations are applied in staging, `AUTH_REQUIRED=true` is tested with real users, CI/CD is enabled, and live email/GHL modes receive explicit approval.
 
 ## Tech Stack
 
@@ -42,6 +44,37 @@ LeadRubyOrbit is planned as a lead outreach and follow-up management platform fo
 - Phase 23 completed: production deployment planning documentation, environment checklist, and release checklist.
 - Phase 24 completed: security hardening and access control planning documentation, role matrix, and hardening checklist.
 - Phase 25 completed: authentication and RBAC implementation planning documentation, roadmap, and test plan.
+- Phase 26 completed: production/security implementation foundation with auth/RBAC, workspace ownership, RLS migrations, OAuth state persistence, token encryption, request validation, audit logs, lead operations, AI-style draft generation, analytics, automation controls, realtime in-app notifications, and admin readiness UI.
+
+## Current Phase 26 Implementation
+
+Phase 26 adds the production/security foundation that supersedes the older planning-only notes in phases 24 and 25:
+
+- Supabase Auth bearer-token verification when `AUTH_REQUIRED=true`
+- Admin, Manager, Operator, and Viewer permission gates
+- Workspace resolution and backend query scoping
+- Workspace/RLS migrations for staging verification
+- Security headers, JSON body limits, rate limits, and sensitive endpoint throttling
+- Request validation middleware across mutating routes
+- Audit logging and admin audit log UI
+- Gmail OAuth callback state persistence and expiry validation
+- Gmail token encryption utility with `TOKEN_ENCRYPTION_KEY`
+- Protected Gmail status route; public health and OAuth callback remain intentionally public
+- AI-style cold email draft generation that creates drafts only and requires approval before send
+- Lead tags, scoring, search, filters, dedupe keys, and import history support
+- Analytics APIs for overview, campaign performance, and sender performance
+- Background automation service for reply checks, no-reply checks, and follow-up draft creation, disabled unless explicitly enabled
+- Realtime in-app notification WebSocket refresh
+- Workflow Settings admin readiness panel for send mode, Gmail OAuth, sender limits, and automation status
+
+Safety defaults remain:
+
+- `EMAIL_SEND_MODE=mock`
+- `EMAIL_SEND_LIVE_APPROVED=false`
+- `GHL_MODE=mock`
+- Background automation disabled unless `BACKGROUND_AUTOMATION_ENABLED=true`
+
+Before production, apply migrations in staging, test `AUTH_REQUIRED=true` with real role users, verify RLS isolation, and keep live sending disabled until business and technical approval are complete.
 
 ## Phase 0 Scope
 
@@ -64,7 +97,7 @@ Phase 1 adds the database foundation only:
 - Backend Supabase/PostgreSQL config placeholders
 - Environment variable examples for Supabase and PostgreSQL
 
-Later phases will add outreach execution workflows. The current project intentionally does not include authentication, AI, email sending, reply checking, follow-ups, notifications delivery, or workers.
+Later phases add outreach execution workflows. Historical notes below describe the project as it existed in earlier phases; the current Phase 26 implementation now includes auth/RBAC, mock-safe sending, reply/no-reply workflows, follow-up draft workflows, in-app notifications, AI-style draft generation, analytics, and opt-in automation.
 
 ## Phase 2 Scope
 
@@ -232,6 +265,8 @@ Phase 14 does not send follow-ups automatically. Follow-up sending remains manua
 ### Leads
 
 - `GET /api/leads`
+- `GET /api/leads/:id`
+- `PATCH /api/leads/:id`
 
 ### GHL
 
@@ -244,6 +279,8 @@ Phase 14 does not send follow-ups automatically. Follow-up sending remains manua
 
 - `GET /api/email-drafts`
 - `POST /api/email-drafts`
+- `POST /api/email-drafts/generate-ai`
+- `POST /api/email-drafts/generate-ai/campaign/:campaignId`
 - `GET /api/email-drafts/:id`
 - `PATCH /api/email-drafts/:id`
 - `GET /api/email-drafts/reply-drafts`
@@ -292,6 +329,34 @@ Phase 14 does not send follow-ups automatically. Follow-up sending remains manua
 - `POST /api/no-reply-monitoring/check-campaign/:campaignId`
 - `GET /api/no-reply-monitoring/campaigns/:campaignId/no-replies`
 - `GET /api/no-reply-monitoring/sent-emails/:sentEmailId/no-reply-status`
+
+### Analytics
+
+- `GET /api/analytics/overview`
+- `GET /api/analytics/campaigns`
+- `GET /api/analytics/senders`
+
+### Automation
+
+- `GET /api/automation/status`
+- `POST /api/automation/run-now`
+
+### Audit Logs
+
+- `GET /api/audit-logs`
+
+### Notifications
+
+- `GET /api/notifications`
+- `GET /api/notifications/summary`
+- `GET /api/notifications/:id`
+- `POST /api/notifications`
+- `POST /api/notifications/generate/campaign/:campaignId`
+- `POST /api/notifications/:id/mark-read`
+- `POST /api/notifications/:id/resolve`
+- `POST /api/notifications/:id/archive`
+- `GET /api/campaigns/:campaignId/notifications`
+- `WebSocket /api/notifications/realtime`
 
 ## Phase 17 Scope
 
@@ -345,17 +410,35 @@ Backend deployment variables:
 - `GOOGLE_OAUTH_REDIRECT_URI`
 - `GOOGLE_OAUTH_SCOPES`
 - `EMAIL_SEND_MODE`
+- `EMAIL_SEND_LIVE_APPROVED`
 - `GHL_MODE`
 - `GHL_PRIVATE_INTEGRATION_TOKEN`
 - `GHL_LOCATION_ID`
 - `GHL_WORKFLOW_ID`
 - `GHL_API_BASE_URL`
+- `AUTH_REQUIRED`
+- `TOKEN_ENCRYPTION_KEY`
+- `JSON_BODY_LIMIT`
+- `RATE_LIMIT_WINDOW_MS`
+- `RATE_LIMIT_MAX_REQUESTS`
+- `SENSITIVE_RATE_LIMIT_WINDOW_MS`
+- `SENSITIVE_RATE_LIMIT_MAX_REQUESTS`
+- `BACKGROUND_AUTOMATION_ENABLED`
+- `BACKGROUND_AUTOMATION_RUN_ON_START`
+- `BACKGROUND_AUTOMATION_INTERVAL_MS`
+- `BACKGROUND_AUTOMATION_CAMPAIGN_BATCH_SIZE`
+- `BACKGROUND_AUTOMATION_NO_REPLY_TIMEOUT_DAYS`
+- `BACKGROUND_AUTOMATION_CREATE_FOLLOWUP_DRAFTS`
+- `BACKGROUND_AUTOMATION_FOLLOWUP_DRAFT_BATCH_SIZE`
 
 Frontend deployment variables:
 
 - `VITE_API_BASE_URL`
+- `VITE_AUTH_REQUIRED`
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
 
-`SUPABASE_SERVICE_ROLE_KEY` is backend-only. Never expose it to frontend code or browser builds. Frontend code should only use public client-safe values such as `VITE_API_BASE_URL`, and a Supabase anon key only if a future frontend Supabase client is intentionally introduced.
+`SUPABASE_SERVICE_ROLE_KEY` is backend-only. Never expose it to frontend code or browser builds. Frontend code should only use public client-safe values such as `VITE_API_BASE_URL`, `VITE_AUTH_REQUIRED`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_ANON_KEY`.
 
 ### Safe Email Mode
 
@@ -367,8 +450,12 @@ Gmail OAuth client secrets and token values must stay backend-only. API response
 
 ### Deployment Checklist
 
-- Apply Supabase migrations in order from `001_initial_schema.sql` through `012_notification_system_fields.sql`.
+- Apply Supabase migrations in order from `001_initial_schema.sql` through `016_lead_search_scoring_import_history.sql`.
 - Keep `EMAIL_SEND_MODE=mock` during staging and pre-production QA.
+- Keep `EMAIL_SEND_LIVE_APPROVED=false` until written live-send approval.
+- Set `AUTH_REQUIRED=true` in staging and test Admin, Manager, Operator, and Viewer users.
+- Verify workspace membership backfill and cross-workspace access denial.
+- Verify RLS policies with real Supabase authenticated users.
 - Confirm `/api/health` returns `status: ok`.
 - Confirm dashboard, notifications, campaigns, and timeline endpoints respond.
 - Confirm frontend build uses only client-safe environment variables.
@@ -444,6 +531,25 @@ Phase 25 adds authentication and RBAC implementation planning documentation only
 
 Phase 25 does not implement authentication, implement RBAC, add product logic, change backend business logic, create migrations, deploy anything, enable real email sending, add mutating email scripts, change Gmail OAuth token logic, add schedulers, or implement AI generation. `EMAIL_SEND_MODE` remains approval-gated and should stay `mock`.
 
+## Phase 26 Production/Security Foundation
+
+Phase 26 implements the security and product foundations planned in phases 24 and 25:
+
+- Auth/RBAC backend enforcement and frontend login shell
+- Role-aware navigation and protected business routes
+- Workspace ownership migrations and query scoping
+- Staging RLS read policies for workspace members
+- OAuth state persistence for Gmail callback safety
+- Token encryption utility and token redaction from API responses
+- Audit logging for protected actions
+- Validation, rate limits, security headers, and body limits
+- AI-style draft generation with human approval before send
+- Lead search, filters, tags, scoring, dedupe, and import history
+- Analytics, automation status/run-now APIs, and admin readiness UI
+- Realtime in-app notification delivery
+
+Phase 26 does not apply migrations, deploy production, enable live sending, or enable live GHL sync. Those remain separate staging/production steps.
+
 ## Frontend
 
 ```bash
@@ -481,9 +587,24 @@ backend/db/migrations/009_reply_draft_workflow_fields.sql
 backend/db/migrations/010_no_reply_timeout_fields.sql
 backend/db/migrations/011_followup_creation_fields.sql
 backend/db/migrations/012_notification_system_fields.sql
+backend/db/migrations/013_workspace_ownership_foundation.sql
+backend/db/migrations/014_workspace_rls_policies.sql
+backend/db/migrations/015_google_oauth_state_persistence.sql
+backend/db/migrations/016_lead_search_scoring_import_history.sql
 ```
 
 Apply these SQL migrations in a Supabase PostgreSQL project when you are ready to create or update the schema. Do not commit real `.env` files or secrets.
+
+For staging, back up the database first, apply migrations in order, then test with `AUTH_REQUIRED=true`, real Supabase users, role memberships, and cross-workspace denial checks.
+
+## CI Checks
+
+The repository includes a GitHub Actions workflow that runs:
+
+- Backend tests: `cd backend && npm test`
+- Frontend build: `cd frontend && npm run build`
+- Frontend lint: `cd frontend && npm run lint`
+- Whitespace checks: `git diff --check`
 
 ## Verify Phase 0
 
