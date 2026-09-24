@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import { beforeEach, test } from 'node:test'
 
 import { getHealth } from '../src/controllers/healthController.js'
-import { env } from '../src/config/env.js'
+import { env, validateProductionEnv } from '../src/config/env.js'
 import { getGmailStatusController } from '../src/modules/gmail/gmail.controller.js'
 import {
   createGoogleOAuthState,
@@ -173,6 +173,26 @@ test('requirePermission rejects a role without permission', async () => {
   assert.equal(error.message, 'You do not have permission to perform this action.')
 })
 
+test('permission denial attempts to write an audit event', async () => {
+  const req = {
+    auth: {
+      role: 'viewer',
+    },
+    get() {
+      return ''
+    },
+    method: 'POST',
+    originalUrl: '/api/campaigns',
+    workspace: {
+      id: defaultWorkspaceId,
+    },
+  }
+
+  const error = await runMiddleware(requirePermission(permissions.CAMPAIGN_WRITE), req)
+
+  assert.equal(error.statusCode, 403)
+})
+
 test('securityHeaders sets baseline browser protections', async () => {
   const res = createJsonResponse()
   const error = await runMiddleware(securityHeaders, {}, res)
@@ -230,6 +250,86 @@ test('validateBody rejects malformed write payloads before services run', async 
   assert.equal(error.message, 'Request validation failed.')
   assert.equal(error.details.includes('name is required.'), true)
   assert.equal(error.details.includes('leadIds must include at least 1 item(s).'), true)
+})
+
+test('validateBody rejects unsupported fields by default', async () => {
+  const middleware = validateBody({
+    name: { type: 'string', required: true },
+  })
+  const req = {
+    body: {
+      name: 'Campaign',
+      unknown: 'value',
+    },
+  }
+
+  const error = await runMiddleware(middleware, req)
+
+  assert.equal(error.statusCode, 400)
+  assert.equal(error.details.includes('unknown is not a supported field.'), true)
+})
+
+test('validateBody can allow unknown fields when explicitly configured', async () => {
+  const middleware = validateBody(
+    {
+      name: { type: 'string', required: true },
+    },
+    { allowUnknown: true },
+  )
+  const req = {
+    body: {
+      name: 'Campaign',
+      unknown: 'value',
+    },
+  }
+
+  const error = await runMiddleware(middleware, req)
+
+  assert.equal(error, null)
+})
+
+test('production env validation blocks unsafe production config', () => {
+  const result = validateProductionEnv(
+    {
+      ...env,
+      auth: { required: false },
+      supabase: { url: '', anonKey: '', serviceRoleKey: '' },
+      security: {
+        ...env.security,
+        tokenEncryptionKey: 'short',
+      },
+    },
+    'production',
+  )
+
+  assert.equal(result.ok, false)
+  assert.equal(result.issues.includes('AUTH_REQUIRED must be true in production.'), true)
+  assert.equal(result.issues.includes('SUPABASE_URL is required.'), true)
+  assert.equal(
+    result.issues.includes('TOKEN_ENCRYPTION_KEY must be at least 32 characters in production.'),
+    true,
+  )
+})
+
+test('production env validation passes safe production config', () => {
+  const result = validateProductionEnv(
+    {
+      ...env,
+      auth: { required: true },
+      supabase: {
+        url: 'https://example.supabase.co',
+        anonKey: 'anon-key',
+        serviceRoleKey: 'service-role-key',
+      },
+      security: {
+        ...env.security,
+        tokenEncryptionKey: '12345678901234567890123456789012',
+      },
+    },
+    'production',
+  )
+
+  assert.equal(result.ok, true)
 })
 
 test('workspace RLS migration enables RLS and avoids broad FOR ALL policies', () => {

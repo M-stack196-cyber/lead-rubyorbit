@@ -97,7 +97,7 @@ function validateRule(value, rule, field) {
   return errors
 }
 
-export function validateBody(schema, { requireAtLeastOne = false } = {}) {
+export function validateBody(schema, { allowUnknown = false, requireAtLeastOne = false } = {}) {
   return (req, _res, next) => {
     const body = req.body || {}
 
@@ -107,9 +107,18 @@ export function validateBody(schema, { requireAtLeastOne = false } = {}) {
     }
 
     const errors = []
+    const knownFields = new Set(Object.keys(schema))
 
     for (const [field, rule] of Object.entries(schema)) {
       errors.push(...validateRule(body[field], rule, field))
+    }
+
+    if (!allowUnknown) {
+      for (const field of Object.keys(body)) {
+        if (!knownFields.has(field)) {
+          errors.push(`${field} is not a supported field.`)
+        }
+      }
     }
 
     if (requireAtLeastOne && !Object.keys(schema).some((field) => hasValue(body[field]))) {

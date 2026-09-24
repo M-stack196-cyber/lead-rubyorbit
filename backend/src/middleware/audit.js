@@ -5,7 +5,7 @@ function getRequestId(req) {
   return req.get('x-request-id') || req.get('x-correlation-id') || null
 }
 
-async function writeAuditLog({ req, action, entityType, entityId, statusCode }) {
+export async function writeAuditLog({ req, action, entityType, entityId, statusCode, metadata = {} }) {
   const supabase = createSupabaseServiceClient()
 
   if (!supabase) return
@@ -22,6 +22,7 @@ async function writeAuditLog({ req, action, entityType, entityId, statusCode }) 
       method: req.method,
       path: req.originalUrl,
       requestId: getRequestId(req),
+      ...metadata,
     },
   })
 }

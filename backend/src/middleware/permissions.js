@@ -1,4 +1,5 @@
 import { env } from '../config/env.js'
+import { writeAuditLog } from './audit.js'
 
 export const permissions = {
   CAMPAIGN_WRITE: 'campaign:write',
@@ -72,6 +73,20 @@ export function requirePermission(permission) {
       next()
       return
     }
+
+    writeAuditLog({
+      req,
+      action: 'permission.denied',
+      entityType: 'permission',
+      entityId: permission,
+      statusCode: 403,
+      metadata: {
+        role: req.auth?.role || null,
+        permission,
+      },
+    }).catch((error) => {
+      console.warn('Failed to write permission denial audit log:', error.message)
+    })
 
     next(createHttpError('You do not have permission to perform this action.', 403))
   }

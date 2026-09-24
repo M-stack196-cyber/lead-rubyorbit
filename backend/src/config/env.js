@@ -57,3 +57,98 @@ export const env = {
   },
   databaseUrl: process.env.DATABASE_URL || '',
 }
+
+function requireValue(value, name, issues) {
+  if (!String(value || '').trim()) {
+    issues.push(`${name} is required.`)
+  }
+}
+
+function validatePositiveNumber(value, name, issues) {
+  if (!Number.isFinite(value) || value <= 0) {
+    issues.push(`${name} must be a positive number.`)
+  }
+}
+
+export function validateProductionEnv(currentEnv = env, nodeEnv = process.env.NODE_ENV || 'development') {
+  const issues = []
+  const isProduction = nodeEnv === 'production'
+
+  if (!isProduction) {
+    return {
+      ok: true,
+      issues,
+    }
+  }
+
+  requireValue(currentEnv.clientUrl, 'CLIENT_URL', issues)
+  requireValue(currentEnv.supabase.url, 'SUPABASE_URL', issues)
+  requireValue(currentEnv.supabase.anonKey, 'SUPABASE_ANON_KEY', issues)
+  requireValue(currentEnv.supabase.serviceRoleKey, 'SUPABASE_SERVICE_ROLE_KEY', issues)
+
+  if (!currentEnv.auth.required) {
+    issues.push('AUTH_REQUIRED must be true in production.')
+  }
+
+  if (!currentEnv.security.tokenEncryptionKey) {
+    issues.push('TOKEN_ENCRYPTION_KEY is required in production.')
+  } else if (currentEnv.security.tokenEncryptionKey.length < 32) {
+    issues.push('TOKEN_ENCRYPTION_KEY must be at least 32 characters in production.')
+  }
+
+  validatePositiveNumber(currentEnv.security.rateLimitWindowMs, 'RATE_LIMIT_WINDOW_MS', issues)
+  validatePositiveNumber(currentEnv.security.rateLimitMaxRequests, 'RATE_LIMIT_MAX_REQUESTS', issues)
+  validatePositiveNumber(
+    currentEnv.security.sensitiveRateLimitWindowMs,
+    'SENSITIVE_RATE_LIMIT_WINDOW_MS',
+    issues,
+  )
+  validatePositiveNumber(
+    currentEnv.security.sensitiveRateLimitMaxRequests,
+    'SENSITIVE_RATE_LIMIT_MAX_REQUESTS',
+    issues,
+  )
+
+  if (currentEnv.emailSend.mode === 'live' && !currentEnv.emailSend.liveApproved) {
+    issues.push('EMAIL_SEND_MODE=live requires EMAIL_SEND_LIVE_APPROVED=true.')
+  }
+
+  if (currentEnv.emailSend.mode === 'live') {
+    requireValue(currentEnv.google.clientId, 'GOOGLE_CLIENT_ID', issues)
+    requireValue(currentEnv.google.clientSecret, 'GOOGLE_CLIENT_SECRET', issues)
+    requireValue(currentEnv.google.oauthRedirectUri, 'GOOGLE_OAUTH_REDIRECT_URI', issues)
+  }
+
+  if (currentEnv.automation.enabled) {
+    validatePositiveNumber(
+      currentEnv.automation.intervalMs,
+      'BACKGROUND_AUTOMATION_INTERVAL_MS',
+      issues,
+    )
+    validatePositiveNumber(
+      currentEnv.automation.campaignBatchSize,
+      'BACKGROUND_AUTOMATION_CAMPAIGN_BATCH_SIZE',
+      issues,
+    )
+    validatePositiveNumber(
+      currentEnv.automation.noReplyTimeoutDays,
+      'BACKGROUND_AUTOMATION_NO_REPLY_TIMEOUT_DAYS',
+      issues,
+    )
+  }
+
+  return {
+    ok: issues.length === 0,
+    issues,
+  }
+}
+
+export function assertProductionEnv(currentEnv = env, nodeEnv = process.env.NODE_ENV || 'development') {
+  const result = validateProductionEnv(currentEnv, nodeEnv)
+
+  if (!result.ok) {
+    throw new Error(`Production environment validation failed: ${result.issues.join(' ')}`)
+  }
+
+  return result
+}
