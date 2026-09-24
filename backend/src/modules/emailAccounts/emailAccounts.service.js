@@ -1,4 +1,5 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
+import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
 
 const allowedProviders = new Set(['smtp', 'gmail', 'outlook', 'custom'])
 const allowedStatuses = new Set(['draft', 'active', 'disabled', 'archived', 'error'])
@@ -113,9 +114,9 @@ function mapEmailAccount(row) {
 export async function listEmailAccounts() {
   const supabase = getSupabaseClient()
 
-  const { data, error: accountsError } = await supabase
-    .from('email_accounts')
-    .select(listSelect)
+  const { data, error: accountsError } = await scopeWorkspace(
+    supabase.from('email_accounts').select(listSelect),
+  )
     .order('created_at', { ascending: false })
 
   if (accountsError) {
@@ -138,7 +139,7 @@ export async function createEmailAccount(payload = {}) {
   const supabase = getSupabaseClient()
   const { data, error: createError } = await supabase
     .from('email_accounts')
-    .insert({
+    .insert(withWorkspaceFields({
       provider: payload.provider,
       email: payload.emailAddress,
       email_address: payload.emailAddress,
@@ -157,7 +158,7 @@ export async function createEmailAccount(payload = {}) {
       encrypted_secret_placeholder: payload.secretPlaceholder ? 'placeholder_configured' : null,
       notes: payload.notes || null,
       config: {},
-    })
+    }))
     .select(detailSelect)
     .single()
 
@@ -173,9 +174,9 @@ export async function createEmailAccount(payload = {}) {
 export async function getEmailAccountById(accountId) {
   const supabase = getSupabaseClient()
 
-  const { data, error: fetchError } = await supabase
-    .from('email_accounts')
-    .select(detailSelect)
+  const { data, error: fetchError } = await scopeWorkspace(
+    supabase.from('email_accounts').select(detailSelect),
+  )
     .eq('id', accountId)
     .single()
 
@@ -244,9 +245,9 @@ export async function updateEmailAccount(accountId, payload = {}) {
   }
 
   const supabase = getSupabaseClient()
-  const { data, error: updateError } = await supabase
-    .from('email_accounts')
-    .update(updates)
+  const { data, error: updateError } = await scopeWorkspace(
+    supabase.from('email_accounts').update(updates),
+  )
     .eq('id', accountId)
     .select(detailSelect)
     .single()
@@ -283,9 +284,9 @@ export async function archiveEmailAccount(accountId) {
 
 async function updateEmailAccountState(accountId, updates) {
   const supabase = getSupabaseClient()
-  const { data, error: updateError } = await supabase
-    .from('email_accounts')
-    .update(updates)
+  const { data, error: updateError } = await scopeWorkspace(
+    supabase.from('email_accounts').update(updates),
+  )
     .eq('id', accountId)
     .select(detailSelect)
     .single()

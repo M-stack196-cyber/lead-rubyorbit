@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
   CheckCircle2,
@@ -9,7 +9,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
-import { confirmLeadUpload, uploadLeadFile } from '@/services/api'
+import { confirmLeadUpload, getLeadUploads, uploadLeadFile } from '@/services/api'
 
 const statusVariants = {
   valid: 'success',
@@ -32,6 +32,7 @@ export function LeadUploadsPage() {
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [isConfirming, setIsConfirming] = useState(false)
+  const [uploadHistory, setUploadHistory] = useState([])
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -44,6 +45,18 @@ export function LeadUploadsPage() {
     setSuccess('')
     setError('')
   }, [])
+
+  const loadUploadHistory = useCallback(async () => {
+    try {
+      setUploadHistory(await getLeadUploads({ limit: 50 }))
+    } catch {
+      setUploadHistory([])
+    }
+  }, [])
+
+  useEffect(() => {
+    loadUploadHistory()
+  }, [loadUploadHistory])
 
   async function handleUpload() {
     if (!selectedFile) {
@@ -59,6 +72,7 @@ export function LeadUploadsPage() {
       const result = await uploadLeadFile(selectedFile)
       setUploadResult(result)
       setSuccess('File parsed successfully. Review the rows before importing.')
+      await loadUploadHistory()
     } catch (uploadError) {
       setError(uploadError.message)
     } finally {
@@ -76,8 +90,9 @@ export function LeadUploadsPage() {
     try {
       const result = await confirmLeadUpload(uploadResult.uploadId)
       setSuccess(
-        `Import complete: ${result.importedCount} imported, ${result.skippedCount} skipped.`,
+        `Import complete: ${result.importedCount} imported, ${result.skippedCount} skipped, ${result.duplicateExistingCount || 0} existing duplicates.`,
       )
+      await loadUploadHistory()
     } catch (confirmError) {
       setError(confirmError.message)
     } finally {
@@ -217,7 +232,61 @@ export function LeadUploadsPage() {
           </section>
         </>
       ) : null}
+
+      <ImportHistory uploads={uploadHistory} />
     </>
+  )
+}
+
+function ImportHistory({ uploads }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base text-slate-950">Import History</CardTitle>
+        <CardDescription>Recent parsed and confirmed lead files.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {!uploads.length ? (
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
+            No import history found.
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-md border border-slate-200">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">File</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Rows</th>
+                    <th className="px-4 py-3">Imported</th>
+                    <th className="px-4 py-3">Skipped</th>
+                    <th className="px-4 py-3">Created</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white">
+                  {uploads.map((upload) => (
+                    <tr key={upload.id}>
+                      <td className="min-w-56 px-4 py-3">
+                        <p className="font-medium text-slate-900">{upload.fileName}</p>
+                        <p className="text-xs text-slate-500">{upload.fileType}</p>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{upload.status}</td>
+                      <td className="px-4 py-3 text-slate-700">{upload.totalRows || 0}</td>
+                      <td className="px-4 py-3 text-slate-700">{upload.importedRows || 0}</td>
+                      <td className="px-4 py-3 text-slate-700">{upload.skippedRows || 0}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                        {formatDate(upload.createdAt)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -314,4 +383,13 @@ function formatBytes(bytes = 0) {
   const value = bytes / 1024 ** index
 
   return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`
+}
+
+function formatDate(value) {
+  if (!value) return '-'
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value))
 }

@@ -1,22 +1,36 @@
 import { useEffect, useState } from 'react'
 import { AppLayout } from '@/components/layout/AppLayout'
+import { useAuth } from '@/components/auth/authContext'
 import { CampaignsPage } from '@/pages/CampaignsPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { EmailAccountsPage } from '@/pages/EmailAccountsPage'
 import { LeadUploadsPage } from '@/pages/LeadUploadsPage'
+import { LeadsPage } from '@/pages/LeadsPage'
+import { LoginPage } from '@/pages/LoginPage'
 import { NotificationsPage } from '@/pages/NotificationsPage'
+import {
+  EmailDraftsPage,
+  FollowUpsPage,
+  RepliesPage,
+  TeamDecisionsPage,
+} from '@/pages/QueuesPage'
+import { AuditLogsPage, TeamMembersPage, WorkflowSettingsPage } from '@/pages/AdminPages'
 
 const pages = {
   campaigns: CampaignsPage,
   dashboard: DashboardPage,
-  drafts: CampaignsPage,
+  drafts: EmailDraftsPage,
   'email-accounts': EmailAccountsPage,
-  'email-drafts': CampaignsPage,
-  'follow-ups': CampaignsPage,
+  'email-drafts': EmailDraftsPage,
+  'follow-ups': FollowUpsPage,
   'lead-uploads': LeadUploadsPage,
+  leads: LeadsPage,
   notifications: NotificationsPage,
-  replies: CampaignsPage,
-  'team-decisions': CampaignsPage,
+  'audit-logs': AuditLogsPage,
+  replies: RepliesPage,
+  'team-decisions': TeamDecisionsPage,
+  'team-members': TeamMembersPage,
+  'workflow-settings': WorkflowSettingsPage,
 }
 
 function getCurrentPage() {
@@ -30,6 +44,7 @@ function getCurrentPage() {
 }
 
 export default function App() {
+  const auth = useAuth()
   const [currentPage, setCurrentPage] = useState(getCurrentPage)
   const Page = pages[currentPage]
 
@@ -45,8 +60,20 @@ export default function App() {
     }
   }, [])
 
+  if (auth.isLoading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
+        <p className="text-sm font-medium text-slate-600">Loading LeadRubyOrbit...</p>
+      </main>
+    )
+  }
+
+  if (!auth.isAuthenticated) {
+    return <LoginPage error={auth.error} isLoading={auth.isLoading} onLogin={auth.login} />
+  }
+
   return (
-    <AppLayout currentPage={currentPage}>
+    <AppLayout currentPage={currentPage} onLogout={auth.logout} profile={auth.profile}>
       <Page />
     </AppLayout>
   )

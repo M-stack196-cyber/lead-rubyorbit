@@ -1,4 +1,6 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
+import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
+import { broadcastNotification } from './notifications.realtime.js'
 
 export const notificationTypes = new Set([
   'new_reply',
@@ -17,6 +19,7 @@ const notificationPriorities = new Set(['low', 'normal', 'high', 'urgent'])
 
 const notificationSelect = `
   id,
+  workspace_id,
   type,
   title,
   message,
@@ -79,6 +82,7 @@ function validatePriority(priority) {
 function mapNotification(row) {
   return {
     id: row.id,
+    workspaceId: row.workspace_id,
     type: row.type,
     title: row.title,
     message: row.message,
@@ -144,9 +148,9 @@ function applyEntityFilters(query, payload = {}) {
 }
 
 async function findActiveDuplicate(supabase, payload = {}) {
-  let query = supabase
-    .from('notifications')
-    .select(notificationSelect)
+  let query = scopeWorkspace(
+    supabase.from('notifications').select(notificationSelect),
+  )
     .eq('type', payload.type)
     .in('status', activeStatuses)
     .limit(1)
@@ -168,13 +172,13 @@ export async function createNotification(payload = {}) {
 
   const { data, error } = await supabase
     .from('notifications')
-    .insert({
+    .insert(withWorkspaceFields({
       ...insert,
       related_campaign_id: insert.campaign_id,
       related_lead_id: insert.lead_id,
       related_email_draft_id: insert.email_draft_id,
       related_decision_id: insert.team_decision_id,
-    })
+    }))
     .select(notificationSelect)
     .single()
 
@@ -182,7 +186,10 @@ export async function createNotification(payload = {}) {
     throw createHttpError(error.message, error.code === '23503' ? 400 : 500)
   }
 
-  return mapNotification(data)
+  const notification = mapNotification(data)
+  broadcastNotification(notification)
+
+  return notification
 }
 
 export async function createNotificationIfMissing(payload = {}) {
@@ -199,13 +206,13 @@ export async function createNotificationIfMissing(payload = {}) {
 
   const { data, error } = await supabase
     .from('notifications')
-    .insert({
+    .insert(withWorkspaceFields({
       ...insert,
       related_campaign_id: insert.campaign_id,
       related_lead_id: insert.lead_id,
       related_email_draft_id: insert.email_draft_id,
       related_decision_id: insert.team_decision_id,
-    })
+    }))
     .select(notificationSelect)
     .single()
 
@@ -223,8 +230,11 @@ export async function createNotificationIfMissing(payload = {}) {
     throw createHttpError(error.message, error.code === '23503' ? 400 : 500)
   }
 
+  const notification = mapNotification(data)
+  broadcastNotification(notification)
+
   return {
-    notification: mapNotification(data),
+    notification,
     created: true,
   }
 }
@@ -236,9 +246,9 @@ export async function listNotifications(filters = {}) {
 
   const limit = Math.min(Math.max(Number(filters.limit) || 50, 1), 200)
   const supabase = getSupabaseClient()
-  let query = supabase
-    .from('notifications')
-    .select(notificationSelect)
+  let query = scopeWorkspace(
+    supabase.from('notifications').select(notificationSelect),
+  )
     .order('created_at', { ascending: false })
     .limit(limit)
 
@@ -258,9 +268,9 @@ export async function listNotifications(filters = {}) {
 
 export async function getNotificationById(notificationId) {
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('notifications')
-    .select(notificationSelect)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('notifications').select(notificationSelect),
+  )
     .eq('id', notificationId)
     .single()
 
@@ -290,9 +300,9 @@ async function updateNotificationStatus(notificationId, status) {
     updates.resolved_at = now
   }
 
-  const { data, error } = await supabase
-    .from('notifications')
-    .update(updates)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('notifications').update(updates),
+  )
     .eq('id', notificationId)
     .select(notificationSelect)
     .single()
@@ -320,7 +330,9 @@ export function archiveNotification(notificationId) {
 }
 
 async function countWithFilters(supabase, filters) {
-  let query = supabase.from('notifications').select('id', { count: 'exact', head: true })
+  let query = scopeWorkspace(
+    supabase.from('notifications').select('id', { count: 'exact', head: true }),
+  )
 
   Object.entries(filters).forEach(([column, value]) => {
     if (Array.isArray(value)) {
@@ -372,7 +384,7 @@ export async function listCampaignNotifications(campaignId, filters = {}) {
 }
 
 async function fetchRows(supabase, table, select, campaignId, buildQuery) {
-  let query = supabase.from(table).select(select).eq('campaign_id', campaignId)
+  let query = scopeWorkspace(supabase.from(table).select(select)).eq('campaign_id', campaignId)
   if (buildQuery) query = buildQuery(query)
 
   const { data, error } = await query

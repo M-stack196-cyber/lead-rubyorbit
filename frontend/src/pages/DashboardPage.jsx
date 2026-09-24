@@ -13,7 +13,12 @@ import {
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { getDashboardSummary } from '@/services/api'
+import {
+  getAnalyticsOverview,
+  getCampaignPerformance,
+  getDashboardSummary,
+  getSenderPerformance,
+} from '@/services/api'
 
 const metricCards = [
   { key: 'totalLeads', label: 'Total Leads', icon: Users },
@@ -28,6 +33,9 @@ const metricCards = [
 
 export function DashboardPage() {
   const [summary, setSummary] = useState(null)
+  const [analytics, setAnalytics] = useState(null)
+  const [campaignPerformance, setCampaignPerformance] = useState([])
+  const [senderPerformance, setSenderPerformance] = useState([])
   const [status, setStatus] = useState('loading')
   const [error, setError] = useState('')
 
@@ -36,8 +44,16 @@ export function DashboardPage() {
     setError('')
 
     try {
-      const data = await getDashboardSummary()
+      const [data, analyticsData, campaignRows, senderRows] = await Promise.all([
+        getDashboardSummary(),
+        getAnalyticsOverview(),
+        getCampaignPerformance(),
+        getSenderPerformance(),
+      ])
       setSummary(data)
+      setAnalytics(analyticsData)
+      setCampaignPerformance(campaignRows)
+      setSenderPerformance(senderRows)
       setStatus('ready')
     } catch (loadError) {
       setError(loadError.message)
@@ -95,6 +111,55 @@ export function DashboardPage() {
             value={counts[metric.key] || 0}
           />
         ))}
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base text-slate-950">Performance Rates</CardTitle>
+            <CardDescription>
+              Send, reply, no-reply, and approval rates from current workspace data.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <InfoTile label="Send rate" value={formatPercent(analytics?.rates?.sendRate)} />
+              <InfoTile label="Reply rate" value={formatPercent(analytics?.rates?.replyRate)} />
+              <InfoTile label="No-reply rate" value={formatPercent(analytics?.rates?.noReplyRate)} />
+              <InfoTile
+                label="Draft approval rate"
+                value={formatPercent(analytics?.rates?.draftApprovalRate)}
+              />
+              <InfoTile label="AI drafts" value={analytics?.totals?.aiDrafts || 0} />
+              <InfoTile label="Open rate" value="Not tracked" />
+            </div>
+            <p className="mt-3 text-xs leading-5 text-slate-500">
+              {analytics?.tracking?.openRateMessage}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base text-slate-950">Campaign Performance</CardTitle>
+            <CardDescription>Top campaign reporting rows by current send volume.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CampaignPerformanceTable rows={campaignPerformance} />
+          </CardContent>
+        </Card>
+      </section>
+
+      <section>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base text-slate-950">Sender Performance</CardTitle>
+            <CardDescription>Per-account reply and no-reply performance.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SenderPerformanceTable rows={senderPerformance} />
+          </CardContent>
+        </Card>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
@@ -214,6 +279,101 @@ function CampaignOverviewTable({ campaigns }) {
   )
 }
 
+function CampaignPerformanceTable({ rows }) {
+  const sortedRows = [...rows].sort((a, b) => b.sentEmails - a.sentEmails).slice(0, 8)
+
+  if (!sortedRows.length) {
+    return <EmptyState text="No campaign performance data yet." />
+  }
+
+  return (
+    <div className="overflow-hidden rounded-md border border-slate-200">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Campaign</th>
+              <th className="px-4 py-3">Leads</th>
+              <th className="px-4 py-3">Sent</th>
+              <th className="px-4 py-3">Replies</th>
+              <th className="px-4 py-3">Reply rate</th>
+              <th className="px-4 py-3">No-reply rate</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {sortedRows.map((row) => (
+              <tr key={row.campaignId} className="align-top">
+                <td className="min-w-52 px-4 py-3">
+                  <p className="font-medium text-slate-950">{row.campaignName}</p>
+                  <p className="mt-1 text-xs text-slate-500">{row.status}</p>
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">{row.leads}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">{row.sentEmails}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">{row.replies}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  {formatPercent(row.rates?.replyRate)}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  {formatPercent(row.rates?.noReplyRate)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function SenderPerformanceTable({ rows }) {
+  const sortedRows = [...rows].sort((a, b) => b.sentEmails - a.sentEmails)
+
+  if (!sortedRows.length) {
+    return <EmptyState text="No sender performance data yet." />
+  }
+
+  return (
+    <div className="overflow-hidden rounded-md border border-slate-200">
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200 text-sm">
+          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+            <tr>
+              <th className="px-4 py-3">Sender</th>
+              <th className="px-4 py-3">Provider</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Sent</th>
+              <th className="px-4 py-3">Replies</th>
+              <th className="px-4 py-3">Reply rate</th>
+              <th className="px-4 py-3">No-reply rate</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-200 bg-white">
+            {sortedRows.map((row) => (
+              <tr key={row.emailAccountId} className="align-top">
+                <td className="min-w-56 px-4 py-3 font-medium text-slate-950">
+                  {row.emailAddress}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">{row.provider}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  <StatusPill value={row.status} />
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">{row.sentEmails}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">{row.replies}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  {formatPercent(row.rates?.replyRate)}
+                </td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
+                  {formatPercent(row.rates?.noReplyRate)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function ActivityList({ items }) {
   if (!items.length) {
     return <EmptyState text="No activity yet. As campaigns move through drafts, replies, no-replies, and notifications, events will appear here." />
@@ -282,4 +442,9 @@ function formatDate(value) {
 
 function formatLabel(value) {
   return String(value || '-').replaceAll('_', ' ')
+}
+
+function formatPercent(value) {
+  if (value === null || value === undefined) return '-'
+  return `${value}%`
 }

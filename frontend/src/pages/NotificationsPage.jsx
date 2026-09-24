@@ -2,8 +2,10 @@ import { createElement, useCallback, useEffect, useState } from 'react'
 import { Archive, Bell, CheckCircle2, Loader2, RefreshCcw } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { useAuth } from '@/components/auth/authContext'
 import {
   archiveNotification,
+  getNotificationRealtimeUrl,
   getNotificationSummary,
   getNotifications,
   markNotificationRead,
@@ -45,6 +47,7 @@ const defaultFilters = {
 }
 
 export function NotificationsPage() {
+  const auth = useAuth()
   const [notifications, setNotifications] = useState([])
   const [summary, setSummary] = useState(null)
   const [filters, setFilters] = useState(defaultFilters)
@@ -73,6 +76,26 @@ export function NotificationsPage() {
   useEffect(() => {
     loadNotifications()
   }, [loadNotifications])
+
+  useEffect(() => {
+    const realtimeUrl = getNotificationRealtimeUrl(auth.profile?.workspace?.id)
+    const socket = new WebSocket(realtimeUrl)
+
+    socket.addEventListener('message', (event) => {
+      try {
+        const payload = JSON.parse(event.data)
+        if (payload.type === 'notification.created') {
+          loadNotifications()
+        }
+      } catch {
+        // Ignore malformed realtime payloads and keep the manual refresh path available.
+      }
+    })
+
+    return () => {
+      socket.close()
+    }
+  }, [auth.profile?.workspace?.id, loadNotifications])
 
   async function handleAction(notificationId, action) {
     setActiveId(notificationId)

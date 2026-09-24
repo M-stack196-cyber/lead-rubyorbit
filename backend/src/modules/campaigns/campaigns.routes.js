@@ -15,14 +15,47 @@ import {
 import { listCampaignFollowupDraftsController } from '../followupDrafts/followupDrafts.controller.js'
 import { listCampaignNotificationsController } from '../notifications/notifications.controller.js'
 import { listCampaignTeamDecisionsController } from '../teamDecisions/teamDecisions.controller.js'
+import { permissions, requirePermission } from '../../middleware/permissions.js'
+import { auditAction } from '../../middleware/audit.js'
+import { validateBody } from '../../middleware/validate.js'
 
 export const campaignsRouter = Router()
 
+const campaignStatusValues = ['draft', 'active', 'paused', 'completed', 'archived']
+const campaignBodySchema = {
+  name: { type: 'string', minLength: 1, maxLength: 200 },
+  description: { type: 'string', maxLength: 2000 },
+  status: { type: 'string', enum: campaignStatusValues },
+}
+
 campaignsRouter.get('/', listCampaignsController)
-campaignsRouter.post('/', createCampaignController)
+campaignsRouter.post(
+  '/',
+  validateBody({
+    ...campaignBodySchema,
+    name: { ...campaignBodySchema.name, required: true },
+  }),
+  requirePermission(permissions.CAMPAIGN_WRITE),
+  auditAction('campaign.create', 'campaign'),
+  createCampaignController,
+)
 campaignsRouter.get('/:id', getCampaignByIdController)
-campaignsRouter.patch('/:id', updateCampaignController)
-campaignsRouter.post('/:id/leads', addLeadsToCampaignController)
+campaignsRouter.patch(
+  '/:id',
+  validateBody(campaignBodySchema, { requireAtLeastOne: true }),
+  requirePermission(permissions.CAMPAIGN_WRITE),
+  auditAction('campaign.update', 'campaign', (req) => req.params.id),
+  updateCampaignController,
+)
+campaignsRouter.post(
+  '/:id/leads',
+  validateBody({
+    leadIds: { type: 'array', required: true, minItems: 1, itemType: 'string' },
+  }),
+  requirePermission(permissions.CAMPAIGN_WRITE),
+  auditAction('campaign.leads.add', 'campaign', (req) => req.params.id),
+  addLeadsToCampaignController,
+)
 campaignsRouter.get('/:id/leads', listCampaignLeadsController)
 campaignsRouter.get('/:campaignId/email-drafts', listCampaignEmailDraftsController)
 campaignsRouter.get('/:campaignId/reply-drafts', listCampaignReplyDraftsController)

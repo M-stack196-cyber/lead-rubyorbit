@@ -26,7 +26,10 @@ export async function getGmailStatusController(_req, res, next) {
 
 export async function createGmailConnectUrlController(req, res, next) {
   try {
-    const result = await createGmailConnectUrl(req.params.emailAccountId)
+    const result = await createGmailConnectUrl(req.params.emailAccountId, {
+      workspaceId: req.workspace?.id,
+      teamMemberId: req.auth?.teamMember?.id || (!env.auth.required ? 'local-demo' : null),
+    })
 
     res.json({
       message: 'Gmail OAuth URL created successfully.',

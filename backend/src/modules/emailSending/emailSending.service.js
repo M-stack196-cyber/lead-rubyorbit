@@ -1,5 +1,6 @@
 import { env } from '../../config/env.js'
 import { createSupabaseServiceClient } from '../../config/supabase.js'
+import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
 import { sendGmailMessage } from '../gmail/gmail.sender.js'
 import { sendMockEmail } from './emailSending.mockSender.js'
 
@@ -144,22 +145,26 @@ function mapSentEmail(row) {
 }
 
 export function getEmailSendingStatus() {
-  const mode = env.emailSend.mode || 'mock'
-  const isLive = mode === 'live'
+  const requestedMode = env.emailSend.mode || 'mock'
+  const isLive = requestedMode === 'live' && env.emailSend.liveApproved
 
   return {
-    mode,
+    mode: isLive ? 'live' : 'mock',
+    requestedMode,
     realSendingEnabled: isLive,
+    liveApproved: env.emailSend.liveApproved,
     message: isLive
       ? 'Live Gmail sending mode active. Connected Gmail accounts can send real emails.'
-      : 'Mock sending mode active. No real emails are sent.',
+      : requestedMode === 'live'
+        ? 'Live mode was requested but EMAIL_SEND_LIVE_APPROVED is not true. No real emails are sent.'
+        : 'Mock sending mode active. No real emails are sent.',
   }
 }
 
 async function getDraftById(supabase, draftId) {
-  const { data, error: draftError } = await supabase
-    .from('email_drafts')
-    .select(draftSelect)
+  const { data, error: draftError } = await scopeWorkspace(
+    supabase.from('email_drafts').select(draftSelect),
+  )
     .eq('id', draftId)
     .single()
 
@@ -178,9 +183,9 @@ async function getEmailAccountById(supabase, emailAccountId) {
     throw createHttpError('emailAccountId is required.', 400)
   }
 
-  const { data, error: accountError } = await supabase
-    .from('email_accounts')
-    .select(accountSelect)
+  const { data, error: accountError } = await scopeWorkspace(
+    supabase.from('email_accounts').select(accountSelect),
+  )
     .eq('id', emailAccountId)
     .single()
 
@@ -195,9 +200,9 @@ async function getEmailAccountById(supabase, emailAccountId) {
 }
 
 async function getExistingSentEmail(supabase, draftId) {
-  const { data, error: sentError } = await supabase
-    .from('sent_emails')
-    .select('id')
+  const { data, error: sentError } = await scopeWorkspace(
+    supabase.from('sent_emails').select('id'),
+  )
     .eq('email_draft_id', draftId)
     .eq('status', 'sent')
     .maybeSingle()
@@ -233,8 +238,72 @@ function validateEmailAccount(account) {
   }
 }
 
+async function reserveSendSlot(supabase, account) {
+  validateEmailAccount(account)
+
+  // TODO: Production live sending needs a DB RPC/transaction or compensation that
+  // releases this reservation if the provider send or sent_emails insert fails.
+  const currentSentToday = account.sent_today || 0
+  const nextSentToday = currentSentToday + 1
+  const now = new Date().toISOString()
+
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_accounts').update({
+      sent_today: nextSentToday,
+      last_used_at: now,
+    }),
+  )
+    .eq('id', account.id)
+    .eq('sent_today', currentSentToday)
+    .lt('sent_today', account.daily_send_limit)
+    .select('id, sent_today, last_used_at')
+    .maybeSingle()
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  if (!data) {
+    throw createHttpError(
+      'Email account send limit changed before this send could be reserved. Please retry.',
+      409,
+    )
+  }
+
+  account.sent_today = data.sent_today
+  account.last_used_at = data.last_used_at
+
+  return {
+    reservedSentToday: data.sent_today,
+    previousSentToday: currentSentToday,
+  }
+}
+
 function getSendMode() {
-  return env.emailSend.mode === 'live' ? 'live' : 'mock'
+  return env.emailSend.mode === 'live' && env.emailSend.liveApproved ? 'live' : 'mock'
+}
+
+async function releaseSendSlot(supabase, account, reservation) {
+  if (!reservation) return
+
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_accounts').update({
+      sent_today: reservation.previousSentToday,
+    }),
+  )
+    .eq('id', account.id)
+    .eq('sent_today', reservation.reservedSentToday)
+    .select('id, sent_today')
+    .maybeSingle()
+
+  if (error) {
+    console.warn('Failed to release email send reservation:', error.message)
+    return
+  }
+
+  if (data) {
+    account.sent_today = data.sent_today
+  }
 }
 
 function validateLiveEmailAccount(account) {
@@ -261,7 +330,6 @@ async function sendDraftThroughProvider(draft, account) {
 
 async function sendDraftWithClient(supabase, draft, account) {
   validateDraft(draft)
-  validateEmailAccount(account)
 
   const existingSentEmail = await getExistingSentEmail(supabase, draft.id)
 
@@ -269,11 +337,21 @@ async function sendDraftWithClient(supabase, draft, account) {
     throw createHttpError('Email draft has already been sent.', 409)
   }
 
-  const sendResult = await sendDraftThroughProvider(draft, account)
+  const reservation = await reserveSendSlot(supabase, account)
+  let providerSendSucceeded = false
+  let sendResult
+
+  try {
+    sendResult = await sendDraftThroughProvider(draft, account)
+    providerSendSucceeded = getSendMode() === 'live'
+  } catch (error) {
+    await releaseSendSlot(supabase, account, reservation)
+    throw error
+  }
 
   const { data, error: insertError } = await supabase
     .from('sent_emails')
-    .insert({
+    .insert(withWorkspaceFields({
       email_draft_id: draft.id,
       campaign_id: draft.campaign_id,
       lead_id: draft.lead_id,
@@ -290,37 +368,28 @@ async function sendDraftWithClient(supabase, draft, account) {
       thread_id: sendResult.threadId,
       status: 'sent',
       sent_at: sendResult.sentAt,
-    })
+    }))
     .select(sentEmailSelect)
     .single()
 
   if (insertError) {
+    if (!providerSendSucceeded) {
+      await releaseSendSlot(supabase, account, reservation)
+    }
     throw createHttpError(insertError.message, insertError.code === '23505' ? 409 : 500)
   }
 
-  const now = new Date().toISOString()
-  const { error: accountUpdateError } = await supabase
-    .from('email_accounts')
-    .update({
-      sent_today: (account.sent_today || 0) + 1,
-      last_used_at: now,
-    })
-    .eq('id', account.id)
-
-  if (accountUpdateError) {
-    throw createHttpError(accountUpdateError.message, 500)
-  }
-
-  const { error: draftUpdateError } = await supabase
-    .from('email_drafts')
-    .update({ status: 'sent' })
+  const { error: draftUpdateError } = await scopeWorkspace(
+    supabase.from('email_drafts').update({ status: 'sent' }),
+  )
     .eq('id', draft.id)
 
   if (draftUpdateError) {
+    if (!providerSendSucceeded) {
+      await releaseSendSlot(supabase, account, reservation)
+    }
     throw createHttpError(draftUpdateError.message, 500)
   }
-
-  account.sent_today = (account.sent_today || 0) + 1
 
   return mapSentEmail(data)
 }
@@ -339,9 +408,9 @@ export async function sendCampaignEmails(campaignId, payload = {}) {
   const supabase = getSupabaseClient()
   const account = await getEmailAccountById(supabase, payload.emailAccountId)
 
-  const { data, error: draftsError } = await supabase
-    .from('email_drafts')
-    .select(draftSelect)
+  const { data, error: draftsError } = await scopeWorkspace(
+    supabase.from('email_drafts').select(draftSelect),
+  )
     .eq('campaign_id', campaignId)
     .eq('status', 'approved')
     .order('updated_at', { ascending: true })
@@ -389,9 +458,9 @@ export async function sendCampaignEmails(campaignId, payload = {}) {
 export async function listCampaignSentEmails(campaignId) {
   const supabase = getSupabaseClient()
 
-  const { data, error: sentEmailError } = await supabase
-    .from('sent_emails')
-    .select(sentEmailSelect)
+  const { data, error: sentEmailError } = await scopeWorkspace(
+    supabase.from('sent_emails').select(sentEmailSelect),
+  )
     .eq('campaign_id', campaignId)
     .order('sent_at', { ascending: false })
 

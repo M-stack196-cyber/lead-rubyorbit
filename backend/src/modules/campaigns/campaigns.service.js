@@ -1,4 +1,9 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
+import {
+  getCurrentWorkspaceId,
+  scopeWorkspace,
+  withWorkspaceFields,
+} from '../../middleware/workspace.js'
 
 const allowedStatuses = new Set(['draft', 'active', 'paused', 'completed', 'archived'])
 
@@ -39,10 +44,14 @@ function mapCampaignWithLeadCount(campaign, countsByCampaignId = new Map()) {
 
 export async function listCampaigns() {
   const supabase = getSupabaseClient()
+  const workspaceId = getCurrentWorkspaceId()
 
-  const { data: campaigns, error: campaignsError } = await supabase
-    .from('campaigns')
-    .select('id, name, description, status, created_at, updated_at')
+  const { data: campaigns, error: campaignsError } = await scopeWorkspace(
+    supabase
+      .from('campaigns')
+      .select('id, name, description, status, created_at, updated_at'),
+    workspaceId,
+  )
     .order('created_at', { ascending: false })
 
   if (campaignsError) {
@@ -56,9 +65,10 @@ export async function listCampaigns() {
   }
 
   const campaignIds = campaigns.map((campaign) => campaign.id)
-  const { data: campaignLeads, error: countError } = await supabase
-    .from('campaign_leads')
-    .select('campaign_id')
+  const { data: campaignLeads, error: countError } = await scopeWorkspace(
+    supabase.from('campaign_leads').select('campaign_id'),
+    workspaceId,
+  )
     .in('campaign_id', campaignIds)
 
   if (countError) {
@@ -84,11 +94,11 @@ export async function createCampaign(payload = {}) {
 
   const { data, error: createError } = await supabase
     .from('campaigns')
-    .insert({
+    .insert(withWorkspaceFields({
       name: String(payload.name).trim(),
       description: String(payload.description || '').trim() || null,
       status: payload.status || 'draft',
-    })
+    }))
     .select('id, name, description, status, created_at, updated_at')
     .single()
 
@@ -103,10 +113,14 @@ export async function createCampaign(payload = {}) {
 
 export async function getCampaignById(campaignId) {
   const supabase = getSupabaseClient()
+  const workspaceId = getCurrentWorkspaceId()
 
-  const { data, error: fetchError } = await supabase
-    .from('campaigns')
-    .select('id, name, description, status, created_at, updated_at')
+  const { data, error: fetchError } = await scopeWorkspace(
+    supabase
+      .from('campaigns')
+      .select('id, name, description, status, created_at, updated_at'),
+    workspaceId,
+  )
     .eq('id', campaignId)
     .single()
 
@@ -116,9 +130,10 @@ export async function getCampaignById(campaignId) {
     throw error
   }
 
-  const { count, error: countError } = await supabase
-    .from('campaign_leads')
-    .select('id', { count: 'exact', head: true })
+  const { count, error: countError } = await scopeWorkspace(
+    supabase.from('campaign_leads').select('id', { count: 'exact', head: true }),
+    workspaceId,
+  )
     .eq('campaign_id', campaignId)
 
   if (countError) {
@@ -162,9 +177,9 @@ export async function updateCampaign(campaignId, payload = {}) {
 
   const supabase = getSupabaseClient()
 
-  const { data, error: updateError } = await supabase
-    .from('campaigns')
-    .update(updates)
+  const { data, error: updateError } = await scopeWorkspace(
+    supabase.from('campaigns').update(updates),
+  )
     .eq('id', campaignId)
     .select('id, name, description, status, created_at, updated_at')
     .single()
@@ -196,10 +211,33 @@ export async function addLeadsToCampaign(campaignId, leadIds = []) {
   await getCampaignById(campaignId)
 
   const supabase = getSupabaseClient()
+  const workspaceId = getCurrentWorkspaceId()
 
-  const { data: existingRows, error: existingError } = await supabase
-    .from('campaign_leads')
-    .select('lead_id')
+  const { data: workspaceLeads, error: leadsError } = await scopeWorkspace(
+    supabase.from('leads').select('id'),
+    workspaceId,
+  )
+    .in('id', uniqueLeadIds)
+
+  if (leadsError) {
+    const error = new Error(leadsError.message)
+    error.statusCode = 500
+    throw error
+  }
+
+  const workspaceLeadIds = new Set((workspaceLeads || []).map((row) => row.id))
+  const invalidLeadIds = uniqueLeadIds.filter((leadId) => !workspaceLeadIds.has(leadId))
+
+  if (invalidLeadIds.length) {
+    const error = new Error('One or more leads do not belong to the active workspace.')
+    error.statusCode = 400
+    throw error
+  }
+
+  const { data: existingRows, error: existingError } = await scopeWorkspace(
+    supabase.from('campaign_leads').select('lead_id'),
+    workspaceId,
+  )
     .eq('campaign_id', campaignId)
     .in('lead_id', uniqueLeadIds)
 
@@ -225,6 +263,7 @@ export async function addLeadsToCampaign(campaignId, leadIds = []) {
   const rowsToInsert = newLeadIds.map((leadId) => ({
     campaign_id: campaignId,
     lead_id: leadId,
+    workspace_id: workspaceId,
   }))
 
   const { data: insertedRows, error: insertError } = await supabase
@@ -251,10 +290,10 @@ export async function listCampaignLeads(campaignId) {
   await getCampaignById(campaignId)
 
   const supabase = getSupabaseClient()
+  const workspaceId = getCurrentWorkspaceId()
 
-  const { data, error: leadsError } = await supabase
-    .from('campaign_leads')
-    .select(
+  const { data, error: leadsError } = await scopeWorkspace(
+    supabase.from('campaign_leads').select(
       `
         id,
         campaign_id,
@@ -277,7 +316,9 @@ export async function listCampaignLeads(campaignId) {
           created_at
         )
       `,
-    )
+    ),
+    workspaceId,
+  )
     .eq('campaign_id', campaignId)
     .order('created_at', { ascending: false })
 

@@ -1,5 +1,6 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
 import { createNotificationIfMissing } from '../notifications/notifications.service.js'
+import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
 
 const defaultFollowupBody = 'Hi {{firstName}},\n\nJust following up on my previous email.\n\nBest,\nDatamart'
 const followupDraftTypes = ['follow_up', 'followup']
@@ -195,9 +196,9 @@ function followupSubject(originalSubject = '') {
 }
 
 async function getFollowupDraftRowById(supabase, draftId) {
-  const { data, error } = await supabase
-    .from('email_drafts')
-    .select(duplicateDraftSelect)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_drafts').select(duplicateDraftSelect),
+  )
     .eq('id', draftId)
     .in('type', followupDraftTypes)
     .single()
@@ -213,9 +214,9 @@ async function getFollowupDraftRowById(supabase, draftId) {
 }
 
 async function getNoReplySentEmail(supabase, sentEmailId) {
-  const { data, error } = await supabase
-    .from('sent_emails')
-    .select(noReplySentEmailSelect)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('sent_emails').select(noReplySentEmailSelect),
+  )
     .eq('id', sentEmailId)
     .single()
 
@@ -238,9 +239,9 @@ async function getNoReplySentEmail(supabase, sentEmailId) {
 }
 
 async function getReplyCount(supabase, sentEmailId) {
-  const { count, error } = await supabase
-    .from('replies')
-    .select('id', { count: 'exact', head: true })
+  const { count, error } = await scopeWorkspace(
+    supabase.from('replies').select('id', { count: 'exact', head: true }),
+  )
     .eq('sent_email_id', sentEmailId)
 
   if (error) {
@@ -251,9 +252,9 @@ async function getReplyCount(supabase, sentEmailId) {
 }
 
 async function getExistingUnsentFollowupDraft(supabase, campaignLeadId, sentEmailId) {
-  const { data, error } = await supabase
-    .from('email_drafts')
-    .select(duplicateDraftSelect)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_drafts').select(duplicateDraftSelect),
+  )
     .eq('campaign_lead_id', campaignLeadId)
     .eq('source_no_reply_sent_email_id', sentEmailId)
     .in('type', followupDraftTypes)
@@ -269,9 +270,9 @@ async function getExistingUnsentFollowupDraft(supabase, campaignLeadId, sentEmai
 }
 
 async function getPendingNoReplyDecision(supabase, sentEmailId) {
-  const { data, error } = await supabase
-    .from('team_decisions')
-    .select('id, status, decision_type, action')
+  const { data, error } = await scopeWorkspace(
+    supabase.from('team_decisions').select('id, status, decision_type, action'),
+  )
     .eq('sent_email_id', sentEmailId)
     .eq('reason', 'no_reply_timeout')
     .eq('status', 'pending')
@@ -304,9 +305,9 @@ async function safelyCreateFollowupDraftNotification(draft) {
 }
 
 async function getNextFollowupNumber(supabase, campaignLeadId) {
-  const { data, error } = await supabase
-    .from('email_drafts')
-    .select('followup_number')
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_drafts').select('followup_number'),
+  )
     .eq('campaign_lead_id', campaignLeadId)
     .in('type', followupDraftTypes)
     .order('followup_number', { ascending: false, nullsFirst: false })
@@ -321,9 +322,9 @@ async function getNextFollowupNumber(supabase, campaignLeadId) {
 
 export async function listFollowupDrafts(filters = {}) {
   const supabase = getSupabaseClient()
-  let query = supabase
-    .from('email_drafts')
-    .select(duplicateDraftSelect)
+  let query = scopeWorkspace(
+    supabase.from('email_drafts').select(duplicateDraftSelect),
+  )
     .in('type', followupDraftTypes)
     .order('updated_at', { ascending: false })
 
@@ -349,9 +350,9 @@ export async function getFollowupDraftById(draftId) {
 
 export async function listFollowupCandidates(campaignId) {
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('sent_emails')
-    .select(noReplySentEmailSelect)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('sent_emails').select(noReplySentEmailSelect),
+  )
     .eq('campaign_id', campaignId)
     .eq('status', 'no_reply')
     .in('campaign_leads.outreach_status', ['followup_required', 'no_reply'])
@@ -422,7 +423,7 @@ export async function createFollowupDraft(payload = {}) {
 
   const { data, error } = await supabase
     .from('email_drafts')
-    .insert({
+    .insert(withWorkspaceFields({
       campaign_id: payload.campaignId,
       lead_id: payload.leadId,
       campaign_lead_id: payload.campaignLeadId,
@@ -437,7 +438,7 @@ export async function createFollowupDraft(payload = {}) {
       ai_generated: false,
       manual_created: true,
       created_by: null,
-    })
+    }))
     .select(duplicateDraftSelect)
     .single()
 
@@ -460,13 +461,13 @@ export async function createFollowupDraft(payload = {}) {
     throw createHttpError(error.message, error.code === '23503' ? 400 : 500)
   }
 
-  const { error: leadError } = await supabase
-    .from('campaign_leads')
-    .update({
+  const { error: leadError } = await scopeWorkspace(
+    supabase.from('campaign_leads').update({
       outreach_status: 'awaiting_approval',
       followup_count: followupNumber,
       last_followup_draft_id: data.id,
-    })
+    }),
+  )
     .eq('id', payload.campaignLeadId)
 
   if (leadError) {

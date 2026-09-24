@@ -1,6 +1,7 @@
 import { env } from '../../config/env.js'
 import { createSupabaseServiceClient } from '../../config/supabase.js'
 import { createNotificationIfMissing } from '../notifications/notifications.service.js'
+import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
 
 const defaultTimeoutDays = 3
 const eligibleSentEmailStatuses = new Set(['sent', 'waiting_reply'])
@@ -134,9 +135,9 @@ function mapDecision(row) {
 }
 
 async function getSentEmailById(supabase, sentEmailId) {
-  const { data, error } = await supabase
-    .from('sent_emails')
-    .select(sentEmailSelect)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('sent_emails').select(sentEmailSelect),
+  )
     .eq('id', sentEmailId)
     .single()
 
@@ -151,9 +152,9 @@ async function getSentEmailById(supabase, sentEmailId) {
 }
 
 async function getReplyCount(supabase, sentEmailId) {
-  const { count, error } = await supabase
-    .from('replies')
-    .select('id', { count: 'exact', head: true })
+  const { count, error } = await scopeWorkspace(
+    supabase.from('replies').select('id', { count: 'exact', head: true }),
+  )
     .eq('sent_email_id', sentEmailId)
 
   if (error) {
@@ -164,9 +165,11 @@ async function getReplyCount(supabase, sentEmailId) {
 }
 
 async function getPendingNoReplyDecision(supabase, sentEmail) {
-  const { data, error } = await supabase
-    .from('team_decisions')
-    .select('id, status, decision_type, action, notes, created_at, resolved_at')
+  const { data, error } = await scopeWorkspace(
+    supabase
+      .from('team_decisions')
+      .select('id, status, decision_type, action, notes, created_at, resolved_at'),
+  )
     .eq('sent_email_id', sentEmail.id)
     .eq('status', 'pending')
     .eq('reason', 'no_reply_timeout')
@@ -190,7 +193,7 @@ async function createPendingNoReplyDecision(supabase, sentEmail, timeoutDays) {
   const notes = `No reply was detected after ${timeoutDays} day(s). Review manually before preparing any follow-up.`
   const { data, error } = await supabase
     .from('team_decisions')
-    .insert({
+    .insert(withWorkspaceFields({
       campaign_id: sentEmail.campaign_id,
       lead_id: sentEmail.lead_id,
       campaign_lead_id: sentEmail.campaign_lead_id,
@@ -201,7 +204,7 @@ async function createPendingNoReplyDecision(supabase, sentEmail, timeoutDays) {
       status: 'pending',
       notes,
       created_by: null,
-    })
+    }))
     .select('id, status, decision_type, action, notes, created_at, resolved_at')
     .single()
 
@@ -261,13 +264,13 @@ async function safelyCreateNoReplyNotifications(sentEmail, decision = null) {
 }
 
 async function updateCheckedTimestamps(supabase, sentEmail, nowIso, deadlineIso) {
-  const { error: sentError } = await supabase
-    .from('sent_emails')
-    .update({
+  const { error: sentError } = await scopeWorkspace(
+    supabase.from('sent_emails').update({
       no_reply_checked_at: nowIso,
       no_reply_due_at: deadlineIso,
       reply_deadline_at: deadlineIso,
-    })
+    }),
+  )
     .eq('id', sentEmail.id)
 
   if (sentError) {
@@ -275,9 +278,9 @@ async function updateCheckedTimestamps(supabase, sentEmail, nowIso, deadlineIso)
   }
 
   if (sentEmail.campaign_lead_id) {
-    const { error: leadError } = await supabase
-      .from('campaign_leads')
-      .update({ last_no_reply_checked_at: nowIso })
+    const { error: leadError } = await scopeWorkspace(
+      supabase.from('campaign_leads').update({ last_no_reply_checked_at: nowIso }),
+    )
       .eq('id', sentEmail.campaign_lead_id)
 
     if (leadError) {
@@ -287,15 +290,15 @@ async function updateCheckedTimestamps(supabase, sentEmail, nowIso, deadlineIso)
 }
 
 async function markNoReply(supabase, sentEmail, timeoutDays, nowIso, deadlineIso) {
-  const { error: sentError } = await supabase
-    .from('sent_emails')
-    .update({
+  const { error: sentError } = await scopeWorkspace(
+    supabase.from('sent_emails').update({
       status: 'no_reply',
       no_reply_checked_at: nowIso,
       no_reply_due_at: deadlineIso,
       no_reply_marked_at: nowIso,
       reply_deadline_at: deadlineIso,
-    })
+    }),
+  )
     .eq('id', sentEmail.id)
 
   if (sentError) {
@@ -303,13 +306,13 @@ async function markNoReply(supabase, sentEmail, timeoutDays, nowIso, deadlineIso
   }
 
   if (sentEmail.campaign_lead_id) {
-    const { error: leadError } = await supabase
-      .from('campaign_leads')
-      .update({
+    const { error: leadError } = await scopeWorkspace(
+      supabase.from('campaign_leads').update({
         outreach_status: 'followup_required',
         last_no_reply_checked_at: nowIso,
         next_followup_due_at: nowIso,
-      })
+      }),
+    )
       .eq('id', sentEmail.campaign_lead_id)
 
     if (leadError) {
@@ -334,9 +337,9 @@ async function markNoReply(supabase, sentEmail, timeoutDays, nowIso, deadlineIso
 
 export async function getNoReplyMonitoringStatus() {
   const supabase = getSupabaseClient()
-  const { count, error } = await supabase
-    .from('sent_emails')
-    .select('id', { count: 'exact', head: true })
+  const { count, error } = await scopeWorkspace(
+    supabase.from('sent_emails').select('id', { count: 'exact', head: true }),
+  )
     .eq('status', 'no_reply')
 
   if (error) {
@@ -422,9 +425,9 @@ export async function checkSentEmailNoReply(sentEmailId, payload = {}) {
 export async function checkCampaignNoReplies(campaignId, payload = {}) {
   const timeoutDays = validateTimeoutDays(payload.timeoutDays)
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('sent_emails')
-    .select('id')
+  const { data, error } = await scopeWorkspace(
+    supabase.from('sent_emails').select('id'),
+  )
     .eq('campaign_id', campaignId)
     .in('status', ['sent', 'waiting_reply', 'replied', 'no_reply'])
 
@@ -469,9 +472,9 @@ export async function checkCampaignNoReplies(campaignId, payload = {}) {
 
 export async function listCampaignNoReplies(campaignId) {
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('sent_emails')
-    .select(sentEmailSelect)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('sent_emails').select(sentEmailSelect),
+  )
     .eq('campaign_id', campaignId)
     .eq('status', 'no_reply')
     .order('no_reply_marked_at', { ascending: false })

@@ -3,6 +3,7 @@ import { getGoogleOAuthScopes } from '../gmail/gmail.oauthClient.js'
 import { createNotificationIfMissing } from '../notifications/notifications.service.js'
 import { createPendingDecisionForReply } from '../teamDecisions/teamDecisions.service.js'
 import { isReplyFromOtherSender, readGmailThread } from './replyMonitoring.gmailReader.js'
+import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
 
 const sentEmailSelect = `
   id,
@@ -135,9 +136,9 @@ async function safelyCreateNewReplyNotification(reply) {
 }
 
 async function getSentEmailById(supabase, sentEmailId) {
-  const { data, error } = await supabase
-    .from('sent_emails')
-    .select(sentEmailSelect)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('sent_emails').select(sentEmailSelect),
+  )
     .eq('id', sentEmailId)
     .single()
 
@@ -152,9 +153,9 @@ async function getSentEmailById(supabase, sentEmailId) {
 }
 
 async function getEmailAccountById(supabase, emailAccountId) {
-  const { data, error } = await supabase
-    .from('email_accounts')
-    .select(accountSelect)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_accounts').select(accountSelect),
+  )
     .eq('id', emailAccountId)
     .single()
 
@@ -169,21 +170,21 @@ async function getEmailAccountById(supabase, emailAccountId) {
 }
 
 async function updateSafeGmailError(supabase, accountId, message) {
-  await supabase
-    .from('email_accounts')
-    .update({
+  await scopeWorkspace(
+    supabase.from('email_accounts').update({
       gmail_token_status: 'error',
       gmail_last_error: String(message || 'Gmail API request failed.').slice(0, 500),
-    })
+    }),
+  )
     .eq('id', accountId)
 }
 
 export async function getReplyMonitoringStatus() {
   const supabase = getSupabaseClient()
   const scopes = getGoogleOAuthScopes()
-  const { count, error } = await supabase
-    .from('email_accounts')
-    .select('id', { count: 'exact', head: true })
+  const { count, error } = await scopeWorkspace(
+    supabase.from('email_accounts').select('id', { count: 'exact', head: true }),
+  )
     .eq('provider', 'gmail')
     .eq('gmail_token_status', 'connected')
 
@@ -255,9 +256,9 @@ export async function checkSentEmailReplies(sentEmailId) {
   }
 
   const gmailMessageIds = candidateReplies.map((message) => message.gmailMessageId)
-  const { data: existingReplies, error: existingError } = await supabase
-    .from('replies')
-    .select('gmail_message_id')
+  const { data: existingReplies, error: existingError } = await scopeWorkspace(
+    supabase.from('replies').select('gmail_message_id'),
+  )
     .in('gmail_message_id', gmailMessageIds)
 
   if (existingError) {
@@ -270,7 +271,7 @@ export async function checkSentEmailReplies(sentEmailId) {
   )
 
   if (newReplies.length) {
-    const rows = newReplies.map((message) => ({
+    const rows = newReplies.map((message) => withWorkspaceFields({
       sent_email_id: sentEmail.id,
       campaign_id: sentEmail.campaign_id,
       lead_id: sentEmail.lead_id,
@@ -306,9 +307,9 @@ export async function checkSentEmailReplies(sentEmailId) {
 
   if (candidateReplies.length) {
     const now = new Date().toISOString()
-    const { error: sentEmailUpdateError } = await supabase
-      .from('sent_emails')
-      .update({ status: 'replied' })
+    const { error: sentEmailUpdateError } = await scopeWorkspace(
+      supabase.from('sent_emails').update({ status: 'replied' }),
+    )
       .eq('id', sentEmail.id)
 
     if (sentEmailUpdateError) {
@@ -316,12 +317,12 @@ export async function checkSentEmailReplies(sentEmailId) {
     }
 
     if (sentEmail.campaign_lead_id) {
-      const { error: campaignLeadUpdateError } = await supabase
-        .from('campaign_leads')
-        .update({
+      const { error: campaignLeadUpdateError } = await scopeWorkspace(
+        supabase.from('campaign_leads').update({
           outreach_status: 'replied',
           reply_detected_at: now,
-        })
+        }),
+      )
         .eq('id', sentEmail.campaign_lead_id)
 
       if (campaignLeadUpdateError) {
@@ -340,9 +341,9 @@ export async function checkSentEmailReplies(sentEmailId) {
 
 export async function checkCampaignReplies(campaignId) {
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('sent_emails')
-    .select('id')
+  const { data, error } = await scopeWorkspace(
+    supabase.from('sent_emails').select('id'),
+  )
     .eq('campaign_id', campaignId)
     .in('status', ['sent', 'waiting_reply'])
 
@@ -385,9 +386,9 @@ export async function checkCampaignReplies(campaignId) {
 
 export async function listCampaignReplies(campaignId) {
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('replies')
-    .select(replySelect)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('replies').select(replySelect),
+  )
     .eq('campaign_id', campaignId)
     .order('received_at', { ascending: false })
 
@@ -400,9 +401,9 @@ export async function listCampaignReplies(campaignId) {
 
 export async function listSentEmailReplies(sentEmailId) {
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('replies')
-    .select(replySelect)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('replies').select(replySelect),
+  )
     .eq('sent_email_id', sentEmailId)
     .order('received_at', { ascending: false })
 

@@ -1,4 +1,63 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000'
+const AUTH_STORAGE_KEY = 'leadRubyOrbit:authSession'
+
+let authToken = ''
+
+export function setApiAuthToken(token) {
+  authToken = token || ''
+}
+
+export function getStoredAuthSession() {
+  try {
+    return JSON.parse(window.localStorage.getItem(AUTH_STORAGE_KEY) || 'null')
+  } catch {
+    return null
+  }
+}
+
+export function storeAuthSession(session) {
+  if (!session?.accessToken) {
+    window.localStorage.removeItem(AUTH_STORAGE_KEY)
+    setApiAuthToken('')
+    return null
+  }
+
+  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session))
+  setApiAuthToken(session.accessToken)
+  return session
+}
+
+export function clearStoredAuthSession() {
+  window.localStorage.removeItem(AUTH_STORAGE_KEY)
+  setApiAuthToken('')
+}
+
+const storedSession = typeof window !== 'undefined' ? getStoredAuthSession() : null
+setApiAuthToken(storedSession?.accessToken)
+
+function withAuthHeaders(headers = {}) {
+  const nextHeaders = new Headers(headers)
+
+  if (authToken && !nextHeaders.has('Authorization')) {
+    nextHeaders.set('Authorization', `Bearer ${authToken}`)
+  }
+
+  return nextHeaders
+}
+
+function fetch(input, init = {}) {
+  const target = typeof input === 'string' ? input : input?.url || ''
+  const isBackendApi = target.startsWith(API_BASE_URL)
+
+  if (!isBackendApi) {
+    return globalThis.fetch(input, init)
+  }
+
+  return globalThis.fetch(input, {
+    ...init,
+    headers: withAuthHeaders(init.headers),
+  })
+}
 
 function buildQuery(params = {}) {
   const searchParams = new URLSearchParams()
@@ -29,11 +88,49 @@ export async function getBackendHealth() {
   return parseApiResponse(response)
 }
 
+export async function getCurrentUser() {
+  const response = await fetch(`${API_BASE_URL}/api/auth/me`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
 export async function getDashboardSummary() {
   const response = await fetch(`${API_BASE_URL}/api/dashboard/summary`)
 
   const payload = await parseApiResponse(response)
   return payload.data
+}
+
+export async function getAnalyticsOverview() {
+  const response = await fetch(`${API_BASE_URL}/api/analytics/overview`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getCampaignPerformance() {
+  const response = await fetch(`${API_BASE_URL}/api/analytics/campaigns`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getSenderPerformance() {
+  const response = await fetch(`${API_BASE_URL}/api/analytics/senders`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export function getNotificationRealtimeUrl(workspaceId) {
+  const url = new URL('/api/notifications/realtime', API_BASE_URL)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+
+  if (authToken) url.searchParams.set('token', authToken)
+  if (workspaceId) url.searchParams.set('workspaceId', workspaceId)
+
+  return url.toString()
 }
 
 export async function getCampaignDashboardSummary(campaignId) {
@@ -79,6 +176,13 @@ export async function uploadLeadFile(file) {
 
 export async function getLeadUploadPreview(uploadId) {
   const response = await fetch(`${API_BASE_URL}/api/lead-uploads/${uploadId}/preview`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getLeadUploads(filters = {}) {
+  const response = await fetch(`${API_BASE_URL}/api/lead-uploads${buildQuery(filters)}`)
 
   const payload = await parseApiResponse(response)
   return payload.data
@@ -153,8 +257,28 @@ export async function getCampaignLeads(campaignId) {
   return payload.data
 }
 
-export async function getLeads() {
-  const response = await fetch(`${API_BASE_URL}/api/leads`)
+export async function getLeads(filters = {}) {
+  const response = await fetch(`${API_BASE_URL}/api/leads${buildQuery(filters)}`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function updateLeadMetadata(leadId, metadata) {
+  const response = await fetch(`${API_BASE_URL}/api/leads/${leadId}/metadata`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(metadata),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getLeadDuplicateSummary() {
+  const response = await fetch(`${API_BASE_URL}/api/leads/duplicates`)
 
   const payload = await parseApiResponse(response)
   return payload.data
@@ -206,6 +330,32 @@ export async function createEmailDraft(draft) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(draft),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function generateAiEmailDraft(draftRequest) {
+  const response = await fetch(`${API_BASE_URL}/api/email-drafts/generate-ai`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(draftRequest),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function generateCampaignAiEmailDrafts(campaignId, draftRequest = {}) {
+  const response = await fetch(`${API_BASE_URL}/api/email-drafts/generate-ai/campaign/${campaignId}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(draftRequest),
   })
 
   const payload = await parseApiResponse(response)
@@ -396,6 +546,26 @@ export async function disconnectGmailAccount(emailAccountId) {
 
 export async function getEmailSendingStatus() {
   const response = await fetch(`${API_BASE_URL}/api/email-sending/status`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getAutomationStatus() {
+  const response = await fetch(`${API_BASE_URL}/api/automation/status`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function runAutomationNow(options = {}) {
+  const response = await fetch(`${API_BASE_URL}/api/automation/run-now`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(options),
+  })
 
   const payload = await parseApiResponse(response)
   return payload.data
@@ -652,6 +822,13 @@ export async function getNotifications(filters = {}) {
 
 export async function getNotificationSummary() {
   const response = await fetch(`${API_BASE_URL}/api/notifications/summary`)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getAuditLogs(filters = {}) {
+  const response = await fetch(`${API_BASE_URL}/api/audit-logs${buildQuery(filters)}`)
 
   const payload = await parseApiResponse(response)
   return payload.data

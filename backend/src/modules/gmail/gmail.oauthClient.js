@@ -2,6 +2,8 @@ import { google } from 'googleapis'
 import crypto from 'crypto'
 import { env } from '../../config/env.js'
 
+const oauthStateTtlMs = 10 * 60 * 1000
+
 export function isGoogleOAuthConfigured() {
   return Boolean(
     env.google.clientId &&
@@ -29,16 +31,34 @@ export function createGoogleOAuthClient() {
   )
 }
 
-export function createGoogleAuthUrl(emailAccountId) {
-  const oauth2Client = createGoogleOAuthClient()
-  const csrfToken = crypto.randomUUID()
+export function createGoogleOAuthState({
+  emailAccountId,
+  workspaceId,
+  teamMemberId,
+  ttlMs = oauthStateTtlMs,
+}) {
+  if (!emailAccountId || !workspaceId || !teamMemberId) {
+    throw new Error('Google OAuth state requires email account, workspace, and team member.')
+  }
 
-  const state = Buffer.from(
-    JSON.stringify({
-      emailAccountId,
-      csrfToken,
-    })
-  ).toString('base64url')
+  const state = crypto.randomBytes(32).toString('base64url')
+  const record = {
+    emailAccountId,
+    workspaceId,
+    teamMemberId,
+    csrfToken: crypto.randomUUID(),
+    expiresAt: Date.now() + ttlMs,
+  }
+
+  return { state, record }
+}
+
+export function hashGoogleOAuthState(state) {
+  return crypto.createHash('sha256').update(state).digest('hex')
+}
+
+export function createGoogleAuthUrl(state) {
+  const oauth2Client = createGoogleOAuthClient()
 
   const authUrl = oauth2Client.generateAuthUrl({
     access_type: 'offline',
@@ -50,13 +70,5 @@ export function createGoogleAuthUrl(emailAccountId) {
   return {
     authUrl,
     state,
-  }
-}
-
-export function decodeGoogleOAuthState(state) {
-  try {
-    return JSON.parse(Buffer.from(state, 'base64url').toString('utf8'))
-  } catch {
-    return null
   }
 }

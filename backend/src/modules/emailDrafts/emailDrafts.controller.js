@@ -1,6 +1,8 @@
 import {
   approveEmailDraft,
   createEmailDraft,
+  generateAiEmailDraft,
+  generateCampaignAiEmailDrafts,
   getEmailDraftById,
   listCampaignEmailDrafts,
   listEmailDrafts,
@@ -30,6 +32,34 @@ export async function createEmailDraftController(req, res, next) {
 
     res.status(201).json({
       message: 'Email draft created successfully.',
+      data: result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function generateAiEmailDraftController(req, res, next) {
+  try {
+    const result = await generateAiEmailDraft(req.body)
+
+    res.status(result.alreadyExisting ? 200 : 201).json({
+      message: result.alreadyExisting
+        ? 'Existing AI email draft returned successfully.'
+        : 'AI email draft generated for approval successfully.',
+      data: result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function generateCampaignAiEmailDraftsController(req, res, next) {
+  try {
+    const result = await generateCampaignAiEmailDrafts(req.params.campaignId, req.body)
+
+    res.status(201).json({
+      message: 'Campaign AI email drafts generated for approval successfully.',
       data: result,
     })
   } catch (error) {

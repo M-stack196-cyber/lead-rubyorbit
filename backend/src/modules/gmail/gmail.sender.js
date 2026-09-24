@@ -1,6 +1,7 @@
 import { google } from 'googleapis'
 
 import { createGoogleOAuthClient } from './gmail.oauthClient.js'
+import { decryptSecret } from '../../utils/secretCrypto.js'
 
 function encodeHeader(value = '') {
   const stringValue = String(value).replace(/[\r\n]+/g, ' ')
@@ -42,10 +43,12 @@ export async function sendGmailMessage({ account, draft }) {
   }
 
   const oauth2Client = createGoogleOAuthClient()
+  const accessToken = decryptSecret(account.gmail_access_token_encrypted)
+  const refreshToken = decryptSecret(account.gmail_refresh_token_encrypted)
 
   oauth2Client.setCredentials({
-    access_token: account.gmail_access_token_encrypted || undefined,
-    refresh_token: account.gmail_refresh_token_encrypted,
+    access_token: accessToken || undefined,
+    refresh_token: refreshToken,
     expiry_date: account.gmail_token_expires_at
       ? new Date(account.gmail_token_expires_at).getTime()
       : undefined,

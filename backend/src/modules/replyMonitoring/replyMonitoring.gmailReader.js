@@ -1,6 +1,8 @@
 import { google } from 'googleapis'
 
 import { createGoogleOAuthClient } from '../gmail/gmail.oauthClient.js'
+import { decryptSecret, encryptSecret } from '../../utils/secretCrypto.js'
+import { scopeWorkspace } from '../../middleware/workspace.js'
 
 function normalizeHeaderName(name = '') {
   return String(name).toLowerCase()
@@ -106,11 +108,12 @@ export async function readGmailThread({ account, supabase, threadId }) {
   }
 
   const oauth2Client = createGoogleOAuthClient()
+  const accessToken = decryptSecret(account.gmail_access_token_encrypted)
+  const refreshToken = decryptSecret(account.gmail_refresh_token_encrypted)
 
-  // TODO: Replace placeholder token storage with production encryption/KMS before deployment.
   oauth2Client.setCredentials({
-    access_token: account.gmail_access_token_encrypted || undefined,
-    refresh_token: account.gmail_refresh_token_encrypted,
+    access_token: accessToken || undefined,
+    refresh_token: refreshToken,
     expiry_date: account.gmail_token_expires_at
       ? new Date(account.gmail_token_expires_at).getTime()
       : undefined,
@@ -126,17 +129,18 @@ export async function readGmailThread({ account, supabase, threadId }) {
   const credentials = oauth2Client.credentials || {}
 
   if (credentials.access_token || credentials.expiry_date) {
-    // TODO: Replace placeholder token storage with production encryption/KMS before deployment.
-    await supabase
-      .from('email_accounts')
-      .update({
-        gmail_access_token_encrypted: credentials.access_token || account.gmail_access_token_encrypted,
+    await scopeWorkspace(
+      supabase.from('email_accounts').update({
+        gmail_access_token_encrypted: credentials.access_token
+          ? encryptSecret(credentials.access_token)
+          : account.gmail_access_token_encrypted,
         gmail_token_expires_at: credentials.expiry_date
           ? new Date(credentials.expiry_date).toISOString()
           : account.gmail_token_expires_at,
         gmail_token_status: 'connected',
         gmail_last_error: null,
-      })
+      }),
+    )
       .eq('id', account.id)
   }
 

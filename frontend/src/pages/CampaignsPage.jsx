@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Send,
   SendToBack,
+  Sparkles,
   UserPlus,
   XCircle,
 } from 'lucide-react'
@@ -52,6 +53,8 @@ import {
   getNoReplyMonitoringStatus,
   getReplyMonitoringStatus,
   generateCampaignNotifications,
+  generateAiEmailDraft,
+  generateCampaignAiEmailDrafts,
   rejectEmailDraft,
   retryFailedGhlSync,
   sendCampaignEmails,
@@ -144,6 +147,7 @@ export function CampaignsPage() {
   const [isGhlLoading, setIsGhlLoading] = useState(false)
   const [isGhlSyncing, setIsGhlSyncing] = useState(false)
   const [isDraftSaving, setIsDraftSaving] = useState(false)
+  const [isAiDraftGenerating, setIsAiDraftGenerating] = useState(false)
   const [isEmailSending, setIsEmailSending] = useState(false)
   const [isReplyChecking, setIsReplyChecking] = useState(false)
   const [isNoReplyChecking, setIsNoReplyChecking] = useState(false)
@@ -576,6 +580,69 @@ export function CampaignsPage() {
       setError(draftError.message)
     } finally {
       setIsDraftSaving(false)
+    }
+  }
+
+  async function handleGenerateAiDraft() {
+    if (!selectedCampaignId || !draftForm.campaignLeadId) {
+      setError('Select a campaign lead before generating an AI draft.')
+      return
+    }
+
+    setIsAiDraftGenerating(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await generateAiEmailDraft({
+        campaignId: selectedCampaignId,
+        campaignLeadId: draftForm.campaignLeadId,
+        tone: 'professional',
+      })
+      const generatedDraft = result.draft
+
+      setSelectedDraftId(generatedDraft.id)
+      setDraftForm({
+        campaignLeadId: generatedDraft.campaignLeadId || draftForm.campaignLeadId,
+        draftType: generatedDraft.draftType || 'primary',
+        subject: generatedDraft.subject || '',
+        body: generatedDraft.body || '',
+        rejectedReason: '',
+      })
+      setSuccess(
+        result.alreadyExisting
+          ? 'Existing AI draft loaded for approval.'
+          : 'AI draft generated and queued for approval.',
+      )
+      await reloadEmailDrafts(selectedCampaignId)
+    } catch (draftError) {
+      setError(draftError.message)
+    } finally {
+      setIsAiDraftGenerating(false)
+    }
+  }
+
+  async function handleGenerateCampaignAiDrafts() {
+    if (!selectedCampaignId) return
+
+    setIsAiDraftGenerating(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const result = await generateCampaignAiEmailDrafts(selectedCampaignId, {
+        tone: 'professional',
+        limit: 50,
+      })
+
+      setSuccess(
+        `AI drafts generated: ${result.created} created, ${result.existing} existing, ${result.failed} failed.`,
+      )
+      await reloadEmailDrafts(selectedCampaignId)
+    } catch (draftError) {
+      setError(draftError.message)
+    } finally {
+      setIsAiDraftGenerating(false)
     }
   }
 
@@ -1015,6 +1082,7 @@ export function CampaignsPage() {
           isReplyDraftSaving={isReplyDraftSaving}
           isGhlLoading={isGhlLoading}
           isGhlSyncing={isGhlSyncing}
+          isAiDraftGenerating={isAiDraftGenerating}
           isDraftSaving={isDraftSaving}
           isSaving={isSaving}
           ghlSettings={ghlSettings}
@@ -1053,6 +1121,8 @@ export function CampaignsPage() {
           onDraftReset={resetDraftForm}
           onDraftSave={handleSaveDraft}
           onDraftSelect={handleSelectDraft}
+          onGenerateAiDraft={handleGenerateAiDraft}
+          onGenerateCampaignAiDrafts={handleGenerateCampaignAiDrafts}
           onEmailAccountChange={setSelectedEmailAccountId}
           onSendCampaignEmails={handleSendCampaignEmails}
           onSendDraft={handleSendDraft}
@@ -1256,6 +1326,7 @@ function CampaignDetailCard({
   isReplyDraftSaving,
   isGhlLoading,
   isGhlSyncing,
+  isAiDraftGenerating,
   isDraftSaving,
   isSaving,
   selectedEmailAccountId,
@@ -1292,6 +1363,8 @@ function CampaignDetailCard({
   onDraftReset,
   onDraftSave,
   onDraftSelect,
+  onGenerateAiDraft,
+  onGenerateCampaignAiDrafts,
   onEmailAccountChange,
   onLeadSelection,
   onTimelineCampaignLeadChange,
@@ -1400,10 +1473,13 @@ function CampaignDetailCard({
           campaignLeads={campaignLeads}
           draftForm={draftForm}
           emailDrafts={emailDrafts}
+          isAiDraftGenerating={isAiDraftGenerating}
           isDraftSaving={isDraftSaving}
           selectedDraftId={selectedDraftId}
           onApprove={onDraftApprove}
           onChange={onDraftChange}
+          onGenerateAiDraft={onGenerateAiDraft}
+          onGenerateCampaignAiDrafts={onGenerateCampaignAiDrafts}
           onReject={onDraftReject}
           onReset={onDraftReset}
           onSave={onDraftSave}
@@ -1795,10 +1871,13 @@ function EmailDraftsPanel({
   campaignLeads,
   draftForm,
   emailDrafts,
+  isAiDraftGenerating,
   isDraftSaving,
   selectedDraftId,
   onApprove,
   onChange,
+  onGenerateAiDraft,
+  onGenerateCampaignAiDrafts,
   onReject,
   onReset,
   onSave,
@@ -1809,6 +1888,7 @@ function EmailDraftsPanel({
     saved: emailDrafts.filter((draft) => draft.status === 'saved').length,
     approved: emailDrafts.filter((draft) => draft.status === 'approved').length,
     rejected: emailDrafts.filter((draft) => draft.status === 'rejected').length,
+    aiGenerated: emailDrafts.filter((draft) => draft.aiGenerated).length,
   }
   const selectedDraft = emailDrafts.find((draft) => draft.id === selectedDraftId)
   const isApproved = selectedDraft?.status === 'approved'
@@ -1825,11 +1905,12 @@ function EmailDraftsPanel({
         <FileText className="h-5 w-5 text-primary" aria-hidden="true" />
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <InfoTile label="Total" value={summary.total} />
         <InfoTile label="Saved" value={summary.saved} />
         <InfoTile label="Approved" value={summary.approved} />
         <InfoTile label="Rejected" value={summary.rejected} />
+        <InfoTile label="AI Generated" value={summary.aiGenerated} />
       </div>
 
       <form className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4" onSubmit={onSave}>
@@ -1915,9 +1996,37 @@ function EmailDraftsPanel({
 
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={onGenerateAiDraft}
+            disabled={
+              !draftForm.campaignLeadId || isDraftSaving || isAiDraftGenerating || isApproved
+            }
+          >
+            {isAiDraftGenerating ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+            )}
+            Generate AI Draft
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 shadow-sm transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={onGenerateCampaignAiDrafts}
+            disabled={!campaignLeads.length || isDraftSaving || isAiDraftGenerating}
+          >
+            {isAiDraftGenerating ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+            )}
+            Generate Campaign AI Drafts
+          </button>
+          <button
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
             type="submit"
-            disabled={isDraftSaving || isApproved}
+            disabled={isDraftSaving || isAiDraftGenerating || isApproved}
           >
             {isDraftSaving ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -1930,7 +2039,7 @@ function EmailDraftsPanel({
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             onClick={() => onApprove(selectedDraftId)}
-            disabled={!selectedDraftId || isDraftSaving || isApproved}
+            disabled={!selectedDraftId || isDraftSaving || isAiDraftGenerating || isApproved}
           >
             <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
             Approve
@@ -1939,7 +2048,7 @@ function EmailDraftsPanel({
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
             onClick={() => onReject(selectedDraftId, draftForm.rejectedReason)}
-            disabled={!selectedDraftId || isDraftSaving}
+            disabled={!selectedDraftId || isDraftSaving || isAiDraftGenerating}
           >
             <XCircle className="h-4 w-4" aria-hidden="true" />
             Reject

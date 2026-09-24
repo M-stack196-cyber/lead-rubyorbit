@@ -1,4 +1,5 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
+import { scopeWorkspace } from '../../middleware/workspace.js'
 
 const followupDraftTypes = ['follow_up', 'followup']
 
@@ -19,7 +20,7 @@ function createHttpError(message, statusCode = 400) {
 }
 
 async function countRows(supabase, table, applyFilters) {
-  let query = supabase.from(table).select('id', { count: 'exact', head: true })
+  let query = scopeWorkspace(supabase.from(table).select('id', { count: 'exact', head: true }))
   if (applyFilters) query = applyFilters(query)
 
   const { count, error } = await query
@@ -32,7 +33,7 @@ async function countRows(supabase, table, applyFilters) {
 }
 
 async function fetchRows(supabase, table, select, applyFilters) {
-  let query = supabase.from(table).select(select)
+  let query = scopeWorkspace(supabase.from(table).select(select))
   if (applyFilters) query = applyFilters(query)
 
   const { data, error } = await query
@@ -45,7 +46,9 @@ async function fetchRows(supabase, table, select, applyFilters) {
 }
 
 async function fetchMaybeSingle(supabase, table, select, column, value, notFoundMessage) {
-  const { data, error } = await supabase.from(table).select(select).eq(column, value).maybeSingle()
+  const { data, error } = await scopeWorkspace(supabase.from(table).select(select))
+    .eq(column, value)
+    .maybeSingle()
 
   if (error) {
     throw createHttpError(error.message, 500)

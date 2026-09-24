@@ -1,4 +1,5 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
+import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
 
 const allowedDecisionTypes = new Set([
   'stop_outreach',
@@ -160,9 +161,9 @@ function toDecisionInsert(payload = {}) {
 }
 
 async function getDecisionRowById(supabase, decisionId) {
-  const { data, error } = await supabase
-    .from('team_decisions')
-    .select(decisionSelect)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('team_decisions').select(decisionSelect),
+  )
     .eq('id', decisionId)
     .single()
 
@@ -177,9 +178,8 @@ async function getDecisionRowById(supabase, decisionId) {
 }
 
 async function getReplyById(supabase, replyId) {
-  const { data, error } = await supabase
-    .from('replies')
-    .select(
+  const { data, error } = await scopeWorkspace(
+    supabase.from('replies').select(
       `
         id,
         sent_email_id,
@@ -192,7 +192,8 @@ async function getReplyById(supabase, replyId) {
           subject
         )
       `,
-    )
+    ),
+  )
     .eq('id', replyId)
     .single()
 
@@ -216,7 +217,7 @@ async function createReplyDraft(supabase, decision) {
 
   const { data, error } = await supabase
     .from('email_drafts')
-    .insert({
+    .insert(withWorkspaceFields({
       campaign_id: decision.campaign_id,
       lead_id: decision.lead_id,
       campaign_lead_id: decision.campaign_lead_id,
@@ -229,7 +230,7 @@ async function createReplyDraft(supabase, decision) {
       ai_generated: false,
       manual_created: true,
       created_by: null,
-    })
+    }))
     .select('id, campaign_id, lead_id, campaign_lead_id, type, subject, body, status, created_at, updated_at')
     .single()
 
@@ -265,9 +266,9 @@ function outreachStatusForDecision(decisionType) {
 
 export async function listTeamDecisions(filters = {}) {
   const supabase = getSupabaseClient()
-  let query = supabase
-    .from('team_decisions')
-    .select(decisionSelect)
+  let query = scopeWorkspace(
+    supabase.from('team_decisions').select(decisionSelect),
+  )
     .order('created_at', { ascending: false })
 
   if (filters.campaignId) {
@@ -305,7 +306,7 @@ export async function createTeamDecision(payload = {}) {
 
   const { data, error } = await supabase
     .from('team_decisions')
-    .insert(insert)
+    .insert(withWorkspaceFields(insert))
     .select(decisionSelect)
     .single()
 
@@ -349,9 +350,9 @@ export async function updateTeamDecision(decisionId, payload = {}) {
   }
 
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('team_decisions')
-    .update(updates)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('team_decisions').update(updates),
+  )
     .eq('id', decisionId)
     .select(decisionSelect)
     .single()
@@ -378,9 +379,8 @@ export async function completeTeamDecision(decisionId, payload = {}) {
     createdDraft = await createReplyDraft(supabase, current)
   }
 
-  const { data, error } = await supabase
-    .from('team_decisions')
-    .update({
+  const { data, error } = await scopeWorkspace(
+    supabase.from('team_decisions').update({
       decision_type: decisionType,
       action: decisionType,
       status: 'completed',
@@ -388,7 +388,8 @@ export async function completeTeamDecision(decisionId, payload = {}) {
         ? String(payload.notes || '').trim() || null
         : current.notes,
       resolved_at: new Date().toISOString(),
-    })
+    }),
+  )
     .eq('id', decisionId)
     .select(decisionSelect)
     .single()
@@ -398,9 +399,9 @@ export async function completeTeamDecision(decisionId, payload = {}) {
   }
 
   if (current.campaign_lead_id) {
-    const { error: leadError } = await supabase
-      .from('campaign_leads')
-      .update({ outreach_status: outreachStatusForDecision(decisionType) })
+    const { error: leadError } = await scopeWorkspace(
+      supabase.from('campaign_leads').update({ outreach_status: outreachStatusForDecision(decisionType) }),
+    )
       .eq('id', current.campaign_lead_id)
 
     if (leadError) {
@@ -421,12 +422,12 @@ export async function completeTeamDecision(decisionId, payload = {}) {
 
 export async function cancelTeamDecision(decisionId) {
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('team_decisions')
-    .update({
+  const { data, error } = await scopeWorkspace(
+    supabase.from('team_decisions').update({
       status: 'cancelled',
       resolved_at: new Date().toISOString(),
-    })
+    }),
+  )
     .eq('id', decisionId)
     .select(decisionSelect)
     .single()
@@ -442,9 +443,9 @@ export async function cancelTeamDecision(decisionId) {
 }
 
 async function findPendingDecisionForReply(supabase, replyId) {
-  const { data, error } = await supabase
-    .from('team_decisions')
-    .select(decisionSelect)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('team_decisions').select(decisionSelect),
+  )
     .eq('reply_id', replyId)
     .eq('status', 'pending')
     .maybeSingle()

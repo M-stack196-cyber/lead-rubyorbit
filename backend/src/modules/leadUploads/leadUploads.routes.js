@@ -6,8 +6,12 @@ import { Router } from 'express'
 import {
   confirmLeadUploadController,
   getLeadUploadPreviewController,
+  listLeadUploadsController,
   uploadLeadFileController,
 } from './leadUploads.controller.js'
+import { permissions, requirePermission } from '../../middleware/permissions.js'
+import { sensitiveRateLimit } from '../../middleware/rateLimit.js'
+import { auditAction } from '../../middleware/audit.js'
 
 const uploadDir = path.resolve('uploads/raw')
 
@@ -52,6 +56,19 @@ const upload = multer({
 
 export const leadUploadsRouter = Router()
 
-leadUploadsRouter.post('/upload', upload.single('file'), uploadLeadFileController)
+leadUploadsRouter.get('/', listLeadUploadsController)
+leadUploadsRouter.post(
+  '/upload',
+  sensitiveRateLimit('lead-upload'),
+  requirePermission(permissions.LEAD_IMPORT),
+  auditAction('lead_upload.upload', 'lead_upload'),
+  upload.single('file'),
+  uploadLeadFileController,
+)
 leadUploadsRouter.get('/:id/preview', getLeadUploadPreviewController)
-leadUploadsRouter.post('/:id/confirm', confirmLeadUploadController)
+leadUploadsRouter.post(
+  '/:id/confirm',
+  requirePermission(permissions.LEAD_IMPORT),
+  auditAction('lead_upload.confirm', 'lead_upload', (req) => req.params.id),
+  confirmLeadUploadController,
+)

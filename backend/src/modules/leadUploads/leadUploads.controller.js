@@ -1,8 +1,22 @@
 import {
   confirmLeadUpload,
   getLeadUploadPreview,
+  listLeadUploads,
   processLeadUpload,
 } from './leadUploads.service.js'
+
+export async function listLeadUploadsController(req, res, next) {
+  try {
+    const result = await listLeadUploads(req.query)
+
+    res.json({
+      message: 'Lead uploads fetched successfully.',
+      data: result,
+    })
+  } catch (error) {
+    next(error)
+  }
+}
 
 export async function uploadLeadFileController(req, res, next) {
   try {

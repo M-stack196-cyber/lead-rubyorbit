@@ -3,6 +3,7 @@ import { createSupabaseServiceClient } from '../../config/supabase.js'
 import { sendGmailMessage } from '../gmail/gmail.sender.js'
 import { sendMockEmail } from '../emailSending/emailSending.mockSender.js'
 import { createNotificationIfMissing } from '../notifications/notifications.service.js'
+import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
 
 const allowedDraftTypes = new Set(['primary', 'follow_up', 'followup', 'reply', 'manual'])
 const allowedDraftStatuses = new Set([
@@ -125,6 +126,7 @@ function mapDraft(row) {
     subject: row.subject,
     body: row.body,
     status: row.status,
+    aiGenerated: row.ai_generated,
     createdBy: row.created_by,
     approvedBy: row.approved_by,
     approvedAt: row.approved_at,
@@ -170,6 +172,7 @@ const draftSelect = `
   subject,
   body,
   status,
+  ai_generated,
   created_by,
   approved_by,
   approved_at,
@@ -193,6 +196,30 @@ const draftSelect = `
     subject,
     from_email,
     received_at
+  )
+`
+
+const campaignLeadAiSelect = `
+  id,
+  campaign_id,
+  lead_id,
+  outreach_status,
+  campaigns (
+    id,
+    name,
+    description
+  ),
+  leads (
+    id,
+    name,
+    email,
+    company,
+    website,
+    linkedin_url,
+    location,
+    source,
+    tags,
+    score
   )
 `
 
@@ -268,9 +295,9 @@ async function safelyCreateDraftNotification(draft, type) {
 export async function listEmailDrafts() {
   const supabase = getSupabaseClient()
 
-  const { data, error: draftsError } = await supabase
-    .from('email_drafts')
-    .select(draftSelect)
+  const { data, error: draftsError } = await scopeWorkspace(
+    supabase.from('email_drafts').select(draftSelect),
+  )
     .order('updated_at', { ascending: false })
 
   if (draftsError) {
@@ -295,7 +322,7 @@ export async function createEmailDraft(payload = {}) {
 
   const { data, error: createError } = await supabase
     .from('email_drafts')
-    .insert({
+    .insert(withWorkspaceFields({
       campaign_id: payload.campaignId,
       lead_id: payload.leadId,
       campaign_lead_id: payload.campaignLeadId || null,
@@ -308,7 +335,7 @@ export async function createEmailDraft(payload = {}) {
       manual_created: draftType === 'manual',
       ai_generated: false,
       created_by: null,
-    })
+    }))
     .select(draftSelect)
     .single()
 
@@ -324,12 +351,182 @@ export async function createEmailDraft(payload = {}) {
   return mappedDraft
 }
 
+function firstName(name = '') {
+  return String(name || '').trim().split(/\s+/)[0] || 'there'
+}
+
+function buildAiDraftCopy({ campaign, lead, payload = {} }) {
+  const tone = String(payload.tone || 'professional').trim().toLowerCase()
+  const goal = String(payload.goal || campaign?.description || 'start a useful conversation').trim()
+  const callToAction = String(payload.callToAction || 'Would you be open to a quick conversation this week?').trim()
+  const companyPhrase = lead.company ? `at ${lead.company}` : 'on your team'
+  const subjectCompany = lead.company || campaign?.name || 'your team'
+  const subject = payload.subject || `Quick idea for ${subjectCompany}`
+  const opener =
+    tone === 'friendly'
+      ? `Hi ${firstName(lead.name)},`
+      : `Hello ${firstName(lead.name)},`
+  const context = lead.company
+    ? `I noticed ${lead.company} and wanted to reach out with a focused idea.`
+    : 'I wanted to reach out with a focused idea.'
+  const scoreLine = Number.isFinite(Number(lead.score)) && Number(lead.score) > 0
+    ? `I marked this as a strong-fit lead based on the available profile signals.`
+    : ''
+
+  return {
+    subject,
+    body: [
+      opener,
+      '',
+      context,
+      `For ${companyPhrase}, the goal is simple: ${goal}.`,
+      scoreLine,
+      '',
+      callToAction,
+      '',
+      'Best,',
+      '{{senderName}}',
+    ].filter((line) => line !== '').join('\n'),
+  }
+}
+
+async function getCampaignLeadForAiDraft(supabase, campaignLeadId) {
+  const { data, error } = await scopeWorkspace(
+    supabase.from('campaign_leads').select(campaignLeadAiSelect),
+  )
+    .eq('id', campaignLeadId)
+    .single()
+
+  if (error) {
+    throw createHttpError(
+      error.code === 'PGRST116' ? 'Campaign lead not found.' : error.message,
+      error.code === 'PGRST116' ? 404 : 500,
+    )
+  }
+
+  return data
+}
+
+async function getExistingAiDraft(supabase, campaignLeadId) {
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_drafts').select(draftSelect),
+  )
+    .eq('campaign_lead_id', campaignLeadId)
+    .eq('type', 'primary')
+    .eq('ai_generated', true)
+    .in('status', ['saved', 'pending_approval', 'approved'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  return data
+}
+
+export async function generateAiEmailDraft(payload = {}) {
+  validateRequired(payload.campaignLeadId, 'campaignLeadId is required.')
+
+  const supabase = getSupabaseClient()
+  const campaignLead = await getCampaignLeadForAiDraft(supabase, payload.campaignLeadId)
+
+  if (payload.campaignId && campaignLead.campaign_id !== payload.campaignId) {
+    throw createHttpError('Campaign lead does not belong to the requested campaign.', 400)
+  }
+
+  if (!payload.regenerate) {
+    const existingDraft = await getExistingAiDraft(supabase, campaignLead.id)
+
+    if (existingDraft) {
+      return {
+        draft: mapDraft(existingDraft),
+        alreadyExisting: true,
+      }
+    }
+  }
+
+  const copy = buildAiDraftCopy({
+    campaign: campaignLead.campaigns,
+    lead: campaignLead.leads || {},
+    payload,
+  })
+
+  const { data, error } = await supabase
+    .from('email_drafts')
+    .insert(withWorkspaceFields({
+      campaign_id: campaignLead.campaign_id,
+      lead_id: campaignLead.lead_id,
+      campaign_lead_id: campaignLead.id,
+      type: 'primary',
+      subject: copy.subject,
+      body: copy.body,
+      status: 'pending_approval',
+      manual_created: false,
+      ai_generated: true,
+      created_by: null,
+    }))
+    .select(draftSelect)
+    .single()
+
+  if (error) {
+    throw createHttpError(error.message, error.code === '23503' ? 400 : 500)
+  }
+
+  return {
+    draft: mapDraft(data),
+    alreadyExisting: false,
+  }
+}
+
+export async function generateCampaignAiEmailDrafts(campaignId, payload = {}) {
+  validateRequired(campaignId, 'campaignId is required.')
+
+  const supabase = getSupabaseClient()
+  const { data, error } = await scopeWorkspace(
+    supabase.from('campaign_leads').select('id'),
+  )
+    .eq('campaign_id', campaignId)
+    .order('created_at', { ascending: true })
+    .limit(Math.min(Math.max(Number(payload.limit || 25), 1), 100))
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  const summary = {
+    total: data?.length || 0,
+    created: 0,
+    existing: 0,
+    failed: 0,
+    drafts: [],
+  }
+
+  for (const row of data || []) {
+    try {
+      const result = await generateAiEmailDraft({
+        ...payload,
+        campaignId,
+        campaignLeadId: row.id,
+      })
+      if (result.alreadyExisting) summary.existing += 1
+      else summary.created += 1
+      summary.drafts.push(result.draft)
+    } catch {
+      summary.failed += 1
+    }
+  }
+
+  return summary
+}
+
 export async function getEmailDraftById(draftId) {
   const supabase = getSupabaseClient()
 
-  const { data, error: fetchError } = await supabase
-    .from('email_drafts')
-    .select(draftSelect)
+  const { data, error: fetchError } = await scopeWorkspace(
+    supabase.from('email_drafts').select(draftSelect),
+  )
     .eq('id', draftId)
     .single()
 
@@ -386,9 +583,9 @@ export async function updateEmailDraft(draftId, payload = {}) {
   }
 
   const supabase = getSupabaseClient()
-  const { data, error: updateError } = await supabase
-    .from('email_drafts')
-    .update(updates)
+  const { data, error: updateError } = await scopeWorkspace(
+    supabase.from('email_drafts').update(updates),
+  )
     .eq('id', draftId)
     .select(draftSelect)
     .single()
@@ -417,15 +614,15 @@ export async function approveEmailDraft(draftId) {
   requireNonEmptyBody(currentDraft.body, 'Email draft body is required before approval.')
 
   const supabase = getSupabaseClient()
-  const { data, error: approveError } = await supabase
-    .from('email_drafts')
-    .update({
+  const { data, error: approveError } = await scopeWorkspace(
+    supabase.from('email_drafts').update({
       status: 'approved',
       approved_by: null,
       approved_at: new Date().toISOString(),
       rejected_reason: null,
       rejected_at: null,
-    })
+    }),
+  )
     .eq('id', draftId)
     .select(draftSelect)
     .single()
@@ -447,15 +644,15 @@ export async function rejectEmailDraft(draftId, rejectedReason = '') {
   }
 
   const supabase = getSupabaseClient()
-  const { data, error: rejectError } = await supabase
-    .from('email_drafts')
-    .update({
+  const { data, error: rejectError } = await scopeWorkspace(
+    supabase.from('email_drafts').update({
       status: 'rejected',
       rejected_reason: String(rejectedReason || '').trim() || null,
       rejected_at: new Date().toISOString(),
       approved_by: null,
       approved_at: null,
-    })
+    }),
+  )
     .eq('id', draftId)
     .select(draftSelect)
     .single()
@@ -472,9 +669,9 @@ export async function rejectEmailDraft(draftId, rejectedReason = '') {
 export async function listCampaignEmailDrafts(campaignId) {
   const supabase = getSupabaseClient()
 
-  const { data, error: draftsError } = await supabase
-    .from('email_drafts')
-    .select(draftSelect)
+  const { data, error: draftsError } = await scopeWorkspace(
+    supabase.from('email_drafts').select(draftSelect),
+  )
     .eq('campaign_id', campaignId)
     .order('updated_at', { ascending: false })
 
@@ -489,9 +686,9 @@ export async function listCampaignEmailDrafts(campaignId) {
 
 export async function listReplyDrafts(filters = {}) {
   const supabase = getSupabaseClient()
-  let query = supabase
-    .from('email_drafts')
-    .select(draftSelect)
+  let query = scopeWorkspace(
+    supabase.from('email_drafts').select(draftSelect),
+  )
     .eq('type', 'reply')
     .order('updated_at', { ascending: false })
 
@@ -523,13 +720,13 @@ export async function submitEmailDraftForApproval(draftId) {
   requireNonEmptyBody(currentDraft.body, 'Body is required before submitting for approval.')
 
   const supabase = getSupabaseClient()
-  const { data, error } = await supabase
-    .from('email_drafts')
-    .update({
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_drafts').update({
       status: 'pending_approval',
       rejected_reason: null,
       rejected_at: null,
-    })
+    }),
+  )
     .eq('id', draftId)
     .select(draftSelect)
     .single()
@@ -542,9 +739,9 @@ export async function submitEmailDraftForApproval(draftId) {
 }
 
 async function getAccountById(supabase, accountId) {
-  const { data, error } = await supabase
-    .from('email_accounts')
-    .select(accountSelect)
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_accounts').select(accountSelect),
+  )
     .eq('id', accountId)
     .single()
 
@@ -561,9 +758,9 @@ async function getAccountById(supabase, accountId) {
 async function getOriginalSentEmail(supabase, sentEmailId) {
   if (!sentEmailId) return null
 
-  const { data, error } = await supabase
-    .from('sent_emails')
-    .select('id, email_account_id, subject')
+  const { data, error } = await scopeWorkspace(
+    supabase.from('sent_emails').select('id, email_account_id, subject'),
+  )
     .eq('id', sentEmailId)
     .maybeSingle()
 
@@ -575,9 +772,9 @@ async function getOriginalSentEmail(supabase, sentEmailId) {
 }
 
 async function getExistingSentEmailForDraft(supabase, draftId) {
-  const { data, error } = await supabase
-    .from('sent_emails')
-    .select('id')
+  const { data, error } = await scopeWorkspace(
+    supabase.from('sent_emails').select('id'),
+  )
     .eq('email_draft_id', draftId)
     .eq('status', 'sent')
     .maybeSingle()
@@ -603,6 +800,47 @@ function validateSendAccount(account) {
   }
 }
 
+async function reserveSendSlot(supabase, account) {
+  validateSendAccount(account)
+
+  // TODO: Production live sending needs a DB RPC/transaction or compensation that
+  // releases this reservation if the provider send or sent_emails insert fails.
+  const currentSentToday = account.sent_today || 0
+  const nextSentToday = currentSentToday + 1
+  const now = new Date().toISOString()
+
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_accounts').update({
+      sent_today: nextSentToday,
+      last_used_at: now,
+    }),
+  )
+    .eq('id', account.id)
+    .eq('sent_today', currentSentToday)
+    .lt('sent_today', account.daily_send_limit)
+    .select('id, sent_today, last_used_at')
+    .maybeSingle()
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  if (!data) {
+    throw createHttpError(
+      'Email account send limit changed before this send could be reserved. Please retry.',
+      409,
+    )
+  }
+
+  account.sent_today = data.sent_today
+  account.last_used_at = data.last_used_at
+
+  return {
+    reservedSentToday: data.sent_today,
+    previousSentToday: currentSentToday,
+  }
+}
+
 function validateLiveAccount(account) {
   if (account.provider !== 'gmail') {
     throw createHttpError('Live reply sending only supports Gmail accounts in this phase.', 400)
@@ -614,7 +852,30 @@ function validateLiveAccount(account) {
 }
 
 function getSendMode() {
-  return env.emailSend.mode === 'live' ? 'live' : 'mock'
+  return env.emailSend.mode === 'live' && env.emailSend.liveApproved ? 'live' : 'mock'
+}
+
+async function releaseSendSlot(supabase, account, reservation) {
+  if (!reservation) return
+
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_accounts').update({
+      sent_today: reservation.previousSentToday,
+    }),
+  )
+    .eq('id', account.id)
+    .eq('sent_today', reservation.reservedSentToday)
+    .select('id, sent_today')
+    .maybeSingle()
+
+  if (error) {
+    console.warn('Failed to release email send reservation:', error.message)
+    return
+  }
+
+  if (data) {
+    account.sent_today = data.sent_today
+  }
 }
 
 async function chooseReplySendAccount(supabase, draft, payload = {}) {
@@ -676,7 +937,6 @@ export async function sendReplyDraft(draftId, payload = {}) {
 
   const supabase = getSupabaseClient()
   const account = await chooseReplySendAccount(supabase, draft, payload)
-  validateSendAccount(account)
 
   const existingSentEmail = draft.sentEmailIdAfterSend
     ? { id: draft.sentEmailIdAfterSend }
@@ -686,11 +946,21 @@ export async function sendReplyDraft(draftId, payload = {}) {
     throw createHttpError('Reply draft has already been sent.', 409)
   }
 
-  const sendResult = await sendReplyThroughProvider(draft, account)
+  const reservation = await reserveSendSlot(supabase, account)
+  let providerSendSucceeded = false
+  let sendResult
+
+  try {
+    sendResult = await sendReplyThroughProvider(draft, account)
+    providerSendSucceeded = getSendMode() === 'live'
+  } catch (error) {
+    await releaseSendSlot(supabase, account, reservation)
+    throw error
+  }
 
   const { data: sentEmail, error: insertError } = await supabase
     .from('sent_emails')
-    .insert({
+    .insert(withWorkspaceFields({
       email_draft_id: draft.id,
       campaign_id: draft.campaignId,
       lead_id: draft.leadId,
@@ -707,38 +977,31 @@ export async function sendReplyDraft(draftId, payload = {}) {
       thread_id: sendResult.threadId,
       status: 'sent',
       sent_at: sendResult.sentAt,
-    })
+    }))
     .select(sentEmailSelect)
     .single()
 
   if (insertError) {
+    if (!providerSendSucceeded) {
+      await releaseSendSlot(supabase, account, reservation)
+    }
     throw createHttpError(insertError.message, insertError.code === '23505' ? 409 : 500)
   }
 
-  const now = new Date().toISOString()
-  const { error: accountUpdateError } = await supabase
-    .from('email_accounts')
-    .update({
-      sent_today: (account.sent_today || 0) + 1,
-      last_used_at: now,
-    })
-    .eq('id', account.id)
-
-  if (accountUpdateError) {
-    throw createHttpError(accountUpdateError.message, 500)
-  }
-
-  const { data: updatedDraft, error: draftUpdateError } = await supabase
-    .from('email_drafts')
-    .update({
+  const { data: updatedDraft, error: draftUpdateError } = await scopeWorkspace(
+    supabase.from('email_drafts').update({
       status: 'sent',
       sent_email_id_after_send: sentEmail.id,
-    })
+    }),
+  )
     .eq('id', draft.id)
     .select(draftSelect)
     .single()
 
   if (draftUpdateError) {
+    if (!providerSendSucceeded) {
+      await releaseSendSlot(supabase, account, reservation)
+    }
     throw createHttpError(draftUpdateError.message, 500)
   }
 

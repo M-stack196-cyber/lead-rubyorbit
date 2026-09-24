@@ -1,6 +1,7 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
 import { env } from '../../config/env.js'
 import { createGhlClient, getGhlSettingsStatus } from './ghl.client.js'
+import { scopeWorkspace } from '../../middleware/workspace.js'
 
 function getSupabaseClient() {
   const supabase = createSupabaseServiceClient()
@@ -71,16 +72,16 @@ async function syncRows(campaignId, rowsToSync) {
         lead: row.leads,
       })
 
-      const { error: updateError } = await supabase
-        .from('campaign_leads')
-        .update({
+      const { error: updateError } = await scopeWorkspace(
+        supabase.from('campaign_leads').update({
           ghl_contact_id: contact.contactId,
           ghl_sync_status: 'synced',
           ghl_sync_error: null,
           ghl_synced_at: new Date().toISOString(),
           ghl_workflow_id: workflow.workflowId || env.ghl.workflowId || 'mock_ghl_workflow_default',
           outreach_status: 'synced_to_ghl',
-        })
+        }),
+      )
         .eq('id', row.id)
 
       if (updateError) {
@@ -91,13 +92,13 @@ async function syncRows(campaignId, rowsToSync) {
     } catch (syncError) {
       failed += 1
 
-      await supabase
-        .from('campaign_leads')
-        .update({
+      await scopeWorkspace(
+        supabase.from('campaign_leads').update({
           ghl_sync_status: 'failed',
           ghl_sync_error: syncError.message || 'GHL sync failed.',
           outreach_status: 'ghl_failed',
-        })
+        }),
+      )
         .eq('id', row.id)
     }
   }
@@ -114,9 +115,11 @@ async function syncRows(campaignId, rowsToSync) {
 async function getCampaignById(campaignId) {
   const supabase = getSupabaseClient()
 
-  const { data, error: campaignError } = await supabase
-    .from('campaigns')
-    .select('id, name, description, status, ghl_workflow_id, created_at, updated_at')
+  const { data, error: campaignError } = await scopeWorkspace(
+    supabase
+      .from('campaigns')
+      .select('id, name, description, status, ghl_workflow_id, created_at, updated_at'),
+  )
     .eq('id', campaignId)
     .single()
 
@@ -135,9 +138,8 @@ async function getCampaignLeadRows(campaignId) {
   await getCampaignById(campaignId)
 
   const supabase = getSupabaseClient()
-  const { data, error: rowsError } = await supabase
-    .from('campaign_leads')
-    .select(
+  const { data, error: rowsError } = await scopeWorkspace(
+    supabase.from('campaign_leads').select(
       `
         id,
         campaign_id,
@@ -161,7 +163,8 @@ async function getCampaignLeadRows(campaignId) {
           status
         )
       `,
-    )
+    ),
+  )
     .eq('campaign_id', campaignId)
     .order('created_at', { ascending: false })
 
