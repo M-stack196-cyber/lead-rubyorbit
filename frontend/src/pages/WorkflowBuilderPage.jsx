@@ -261,17 +261,26 @@ function WorkflowBuilderContent({ onNavigate }) {
   const [nodes, setNodes] = useState(() => createSampleNodes())
   const [edges, setEdges] = useState(() => createSampleEdges())
   const [selectedNodeId, setSelectedNodeId] = useState('sample-trigger')
+  const [selectedEdgeId, setSelectedEdgeId] = useState('')
   const [settingsForm, setSettingsForm] = useState(createSettingsForm(nodes[0]))
   const [message, setMessage] = useState('')
   const [isDirty, setIsDirty] = useState(false)
   const [activeModal, setActiveModal] = useState(null)
   const [flowInstance, setFlowInstance] = useState(null)
   const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(false)
-  const [isSettingsCollapsed, setIsSettingsCollapsed] = useState(false)
+  const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false)
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || null,
     [nodes, selectedNodeId],
+  )
+  const selectedEdge = useMemo(
+    () => edges.find((edge) => edge.id === selectedEdgeId) || null,
+    [edges, selectedEdgeId],
+  )
+  const displayedEdges = useMemo(
+    () => edges.map((edge) => getDisplayEdge(edge, edge.id === selectedEdgeId)),
+    [edges, selectedEdgeId],
   )
   const workflowSummary = useMemo(() => getWorkflowSummary(nodes, edges), [nodes, edges])
   const validationResult = useMemo(() => validateWorkflow(nodes, edges), [nodes, edges])
@@ -296,6 +305,8 @@ function WorkflowBuilderContent({ onNavigate }) {
       setNodes(draftNodes)
       setEdges(applyConditionEdgeLabels(draftNodes, draftEdges))
       setSelectedNodeId(draftSelectedNodeId)
+      setSelectedEdgeId('')
+      setIsSettingsDrawerOpen(Boolean(draftSelectedNodeId))
       setIsDirty(false)
       setMessage('Loaded saved workflow draft from this browser.')
     } catch {
@@ -348,6 +359,8 @@ function WorkflowBuilderContent({ onNavigate }) {
     const nextNode = createFlowNode(category.kind, category.category, block.label, block.description, block.icon, position || nextNodePosition(nodes.length))
     setNodes((currentNodes) => [...currentNodes, nextNode])
     setSelectedNodeId(nextNode.id)
+    setSelectedEdgeId('')
+    setIsSettingsDrawerOpen(true)
     setIsDirty(true)
     setMessage(`${block.label} added to the canvas.`)
   }
@@ -379,10 +392,20 @@ function WorkflowBuilderContent({ onNavigate }) {
 
   function handleNodeClick(_, node) {
     setSelectedNodeId(node.id)
+    setSelectedEdgeId('')
+    setIsSettingsDrawerOpen(true)
+  }
+
+  function handleEdgeClick(event, edge) {
+    event.stopPropagation()
+    setSelectedEdgeId(edge.id)
+    setSelectedNodeId('')
+    setIsSettingsDrawerOpen(false)
   }
 
   function handlePaneClick() {
     setSelectedNodeId('')
+    setSelectedEdgeId('')
   }
 
   function handleSaveBlockSettings() {
@@ -416,6 +439,8 @@ function WorkflowBuilderContent({ onNavigate }) {
     setNodes((currentNodes) => currentNodes.filter((node) => node.id !== selectedNode.id))
     setEdges((currentEdges) => currentEdges.filter((edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id))
     setSelectedNodeId('')
+    setSelectedEdgeId('')
+    setIsSettingsDrawerOpen(false)
     setIsDirty(true)
     setMessage('Block deleted locally. Backend automation was not changed.')
   }
@@ -428,6 +453,8 @@ function WorkflowBuilderContent({ onNavigate }) {
     setNodes([])
     setEdges([])
     setSelectedNodeId('')
+    setSelectedEdgeId('')
+    setIsSettingsDrawerOpen(false)
     setIsDirty(true)
     setMessage('Canvas cleared. Save draft to keep this blank workflow.')
   }
@@ -437,7 +464,9 @@ function WorkflowBuilderContent({ onNavigate }) {
     setWorkflowName(defaultWorkflowName)
     setNodes(nextNodes)
     setEdges(createSampleEdges())
-    setSelectedNodeId(nextNodes[0]?.id || '')
+    setSelectedNodeId('')
+    setSelectedEdgeId('')
+    setIsSettingsDrawerOpen(false)
     setIsDirty(true)
     setMessage('Sample workflow restored locally.')
     window.requestAnimationFrame(() => flowInstance?.fitView({ padding: 0.2 }))
@@ -450,7 +479,7 @@ function WorkflowBuilderContent({ onNavigate }) {
     setEdges(nextEdges)
     window.localStorage.setItem(
       draftStorageKey,
-      JSON.stringify({ workflowName, nodes, edges: nextEdges, selectedNodeId, savedAt: new Date().toISOString() }, null, 2),
+      JSON.stringify({ workflowName, nodes, edges: nextEdges, selectedNodeId, selectedEdgeId, savedAt: new Date().toISOString() }, null, 2),
     )
     setIsDirty(false)
     setMessage(
@@ -476,13 +505,54 @@ function WorkflowBuilderContent({ onNavigate }) {
     flowInstance?.fitView({ padding: 0.2, duration: 500 })
   }
 
+  function handleDeleteSelectedEdge() {
+    if (!selectedEdge) return
+
+    setEdges((currentEdges) => currentEdges.filter((edge) => edge.id !== selectedEdge.id))
+    setSelectedEdgeId('')
+    setIsDirty(true)
+    setMessage('Connection deleted locally.')
+  }
+
+  function handleCloseSettingsDrawer() {
+    setIsSettingsDrawerOpen(false)
+  }
+
   const workspaceGridClass = cn(
-    'grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 xl:overflow-hidden',
-    !isLibraryCollapsed && !isSettingsCollapsed && 'xl:grid-cols-[320px_minmax(0,1fr)_340px]',
-    isLibraryCollapsed && !isSettingsCollapsed && 'xl:grid-cols-[minmax(0,1fr)_340px]',
-    !isLibraryCollapsed && isSettingsCollapsed && 'xl:grid-cols-[320px_minmax(0,1fr)]',
-    isLibraryCollapsed && isSettingsCollapsed && 'xl:grid-cols-1',
+    'relative grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 xl:overflow-hidden',
+    isLibraryCollapsed ? 'xl:grid-cols-1' : 'xl:grid-cols-[320px_minmax(0,1fr)]',
   )
+
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (!['Backspace', 'Delete'].includes(event.key) || isEditableTarget(event.target)) return
+
+      if (selectedEdge) {
+        event.preventDefault()
+        setEdges((currentEdges) => currentEdges.filter((edge) => edge.id !== selectedEdge.id))
+        setSelectedEdgeId('')
+        setIsDirty(true)
+        setMessage('Connection deleted locally.')
+        return
+      }
+
+      if (selectedNode) {
+        event.preventDefault()
+        setNodes((currentNodes) => currentNodes.filter((node) => node.id !== selectedNode.id))
+        setEdges((currentEdges) =>
+          currentEdges.filter((edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id),
+        )
+        setSelectedNodeId('')
+        setSelectedEdgeId('')
+        setIsSettingsDrawerOpen(false)
+        setIsDirty(true)
+        setMessage('Block deleted locally. Backend automation was not changed.')
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedEdge, selectedNode])
 
   const previewJson = JSON.stringify(
     {
@@ -563,12 +633,12 @@ function WorkflowBuilderContent({ onNavigate }) {
           <button
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
             type="button"
-            onClick={() => setIsSettingsCollapsed((isCollapsed) => !isCollapsed)}
+            onClick={() => setIsSettingsDrawerOpen((isOpen) => !isOpen)}
           >
-            {isSettingsCollapsed ? (
-              <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
-            ) : (
+            {isSettingsDrawerOpen ? (
               <PanelRightClose className="h-4 w-4" aria-hidden="true" />
+            ) : (
+              <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
             )}
             Settings
           </button>
@@ -701,13 +771,14 @@ function WorkflowBuilderContent({ onNavigate }) {
               <ReactFlow
                 colorMode="light"
                 defaultEdgeOptions={defaultEdgeOptions}
-                deleteKeyCode={['Backspace', 'Delete']}
-                edges={edges}
+                deleteKeyCode={null}
+                edges={displayedEdges}
                 fitView
                 fitViewOptions={{ padding: 0.2 }}
                 nodeTypes={nodeTypes}
                 nodes={nodes}
                 onConnect={onConnect}
+                onEdgeClick={handleEdgeClick}
                 onEdgesChange={onEdgesChange}
                 onInit={setFlowInstance}
                 onNodeClick={handleNodeClick}
@@ -756,11 +827,15 @@ function WorkflowBuilderContent({ onNavigate }) {
           </CardContent>
         </Card>
 
-        {!isSettingsCollapsed ? (
-          <SettingsPanel
+        {selectedEdge ? (
+          <ConnectionActionPanel edge={selectedEdge} onDelete={handleDeleteSelectedEdge} />
+        ) : null}
+
+        {isSettingsDrawerOpen ? (
+          <SettingsDrawer
             form={settingsForm}
             node={selectedNode}
-            onCollapse={() => setIsSettingsCollapsed(true)}
+            onClose={handleCloseSettingsDrawer}
             onDelete={handleDeleteNode}
             onSave={handleSaveBlockSettings}
             onUpdate={setSettingsForm}
@@ -981,103 +1056,103 @@ function WorkflowBlockNode({ data, selected }) {
   )
 }
 
-function SettingsPanel({ form, node, onCollapse, onDelete, onSave, onUpdate }) {
-  if (!node) {
-    return (
-      <Card className="flex min-h-[360px] flex-col overflow-hidden xl:h-full xl:min-h-0">
-        <CardHeader className="shrink-0 border-b border-slate-100 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <CardTitle className="text-base text-slate-950">Settings Panel</CardTitle>
-              <CardDescription>Select a canvas node to edit local settings.</CardDescription>
-            </div>
-            <button
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50"
-              type="button"
-              onClick={onCollapse}
-            >
-              <PanelRightClose className="h-4 w-4" aria-hidden="true" />
-              <span className="sr-only">Collapse settings panel</span>
-            </button>
-          </div>
-        </CardHeader>
-        <CardContent className="min-h-0 flex-1 overflow-y-auto">
+function ConnectionActionPanel({ edge, onDelete }) {
+  return (
+    <div className="absolute right-5 top-5 z-20 rounded-md border border-slate-200 bg-white px-3 py-3 shadow-lg">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Selected Connection</p>
+      <p className="mt-1 max-w-60 truncate text-sm font-semibold text-slate-950">
+        {edge.label ? edge.label + ' branch' : 'Workflow connection'}
+      </p>
+      <button
+        className="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+        type="button"
+        onClick={onDelete}
+      >
+        <Trash2 className="h-4 w-4" aria-hidden="true" />
+        Delete Connection
+      </button>
+    </div>
+  )
+}
+
+function SettingsDrawer({ form, node, onClose, onDelete, onSave, onUpdate }) {
+  return (
+    <aside className="absolute inset-y-3 right-3 z-30 flex w-[min(26rem,calc(100%-1.5rem))] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-2xl">
+      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 p-4">
+        <div>
+          <h2 className="text-base font-semibold text-slate-950">Settings Panel</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {node ? 'Selected block: ' + node.data.label : 'Select a canvas node to edit local settings.'}
+          </p>
+        </div>
+        <button
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50"
+          type="button"
+          onClick={onClose}
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+          <span className="sr-only">Close settings drawer</span>
+        </button>
+      </div>
+
+      {!node ? (
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
           <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-6 text-center text-sm text-slate-600">
             No block selected.
           </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
-  return (
-    <Card className="flex min-h-[520px] flex-col overflow-hidden xl:h-full xl:min-h-0">
-      <CardHeader className="shrink-0 border-b border-slate-100 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-base text-slate-950">Settings Panel</CardTitle>
-            <CardDescription>Selected block: {node.data.label}</CardDescription>
+        </div>
+      ) : (
+        <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4">
+          <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
+              <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+              Settings are visual only in this phase.
+            </div>
           </div>
+
+          <ReadOnlyField label="Block name" value={node.data.label} />
+          <ReadOnlyField label="Block type" value={node.data.category} />
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            Label
+            <input
+              className="min-h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              value={form.label}
+              onChange={(event) => onUpdate({ ...form, label: event.target.value })}
+            />
+          </label>
+          <label className="grid gap-1 text-sm font-medium text-slate-700">
+            Description
+            <textarea
+              className="min-h-24 resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              value={form.description}
+              onChange={(event) => onUpdate({ ...form, description: event.target.value })}
+            />
+          </label>
+
+          {node.data.kind === 'trigger' ? <TriggerSettings form={form} onUpdate={onUpdate} /> : null}
+          {node.data.kind === 'action' ? <ActionSettings form={form} node={node} onUpdate={onUpdate} /> : null}
+          {node.data.kind === 'wait' ? <WaitSettings form={form} onUpdate={onUpdate} /> : null}
+          {node.data.kind === 'condition' ? <ConditionSettings form={form} node={node} onUpdate={onUpdate} /> : null}
+
           <button
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50"
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-red-800"
             type="button"
-            onClick={onCollapse}
+            onClick={onSave}
           >
-            <PanelRightClose className="h-4 w-4" aria-hidden="true" />
-            <span className="sr-only">Collapse settings panel</span>
+            <Save className="h-4 w-4" aria-hidden="true" />
+            Save Block Settings
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-100"
+            type="button"
+            onClick={onDelete}
+          >
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+            Delete Block
           </button>
         </div>
-      </CardHeader>
-      <CardContent className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 pt-0 sm:p-6 sm:pt-0">
-        <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
-            <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-            Settings are visual only in this phase.
-          </div>
-        </div>
-
-        <ReadOnlyField label="Block name" value={node.data.label} />
-        <ReadOnlyField label="Block type" value={node.data.category} />
-        <label className="grid gap-1 text-sm font-medium text-slate-700">
-          Label
-          <input
-            className="min-h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-            value={form.label}
-            onChange={(event) => onUpdate({ ...form, label: event.target.value })}
-          />
-        </label>
-        <label className="grid gap-1 text-sm font-medium text-slate-700">
-          Description
-          <textarea
-            className="min-h-24 resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-            value={form.description}
-            onChange={(event) => onUpdate({ ...form, description: event.target.value })}
-          />
-        </label>
-
-        {node.data.kind === 'trigger' ? <TriggerSettings form={form} onUpdate={onUpdate} /> : null}
-        {node.data.kind === 'action' ? <ActionSettings form={form} node={node} onUpdate={onUpdate} /> : null}
-        {node.data.kind === 'wait' ? <WaitSettings form={form} onUpdate={onUpdate} /> : null}
-        {node.data.kind === 'condition' ? <ConditionSettings form={form} node={node} onUpdate={onUpdate} /> : null}
-
-        <button
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-red-800"
-          type="button"
-          onClick={onSave}
-        >
-          <Save className="h-4 w-4" aria-hidden="true" />
-          Save Block Settings
-        </button>
-        <button
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-100"
-          type="button"
-          onClick={onDelete}
-        >
-          <Trash2 className="h-4 w-4" aria-hidden="true" />
-          Delete Block
-        </button>
-      </CardContent>
-    </Card>
+      )}
+    </aside>
   )
 }
 
@@ -1285,6 +1360,44 @@ function createEdge(source, target, label) {
     target,
     type: 'smoothstep',
   }
+}
+
+
+
+function getDisplayEdge(edge, isSelected) {
+  if (!isSelected) {
+    return edge
+  }
+
+  return {
+    ...edge,
+    animated: true,
+    style: {
+      ...(edge.style || {}),
+      stroke: '#dc2626',
+      strokeWidth: 3,
+    },
+    labelStyle: {
+      ...(edge.labelStyle || {}),
+      fill: '#dc2626',
+      fontWeight: 700,
+    },
+  }
+}
+
+function isEditableTarget(target) {
+  if (!target || !(target instanceof HTMLElement)) {
+    return false
+  }
+
+  const tagName = target.tagName.toLowerCase()
+
+  return (
+    tagName === 'input' ||
+    tagName === 'textarea' ||
+    tagName === 'select' ||
+    target.isContentEditable
+  )
 }
 
 function createConnectedEdge(connection, nodes, edges) {
