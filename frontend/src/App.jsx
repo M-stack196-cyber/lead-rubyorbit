@@ -83,6 +83,10 @@ export default function App() {
     setCurrentPage(page)
   }
 
+  if (currentPage === 'workflow-builder') {
+    return <Page onNavigate={handleNavigate} />
+  }
+
   return (
     <AppLayout
       authRequired={auth.authRequired}
