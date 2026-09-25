@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { useAuth } from '@/components/auth/authContext'
 import { CampaignsPage } from '@/pages/CampaignsPage'
@@ -8,7 +8,6 @@ import { LeadUploadsPage } from '@/pages/LeadUploadsPage'
 import { LeadsPage } from '@/pages/LeadsPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { NotificationsPage } from '@/pages/NotificationsPage'
-import { WorkflowBuilderPage } from '@/pages/WorkflowBuilderPage'
 import {
   EmailDraftsPage,
   FollowUpsPage,
@@ -17,6 +16,10 @@ import {
   TeamDecisionsPage,
 } from '@/pages/QueuesPage'
 import { AuditLogsPage, TeamMembersPage, WorkflowSettingsPage } from '@/pages/AdminPages'
+
+const WorkflowBuilderPage = lazy(() =>
+  import('@/pages/WorkflowBuilderPage').then((module) => ({ default: module.WorkflowBuilderPage })),
+)
 
 const pages = {
   campaigns: CampaignsPage,
@@ -47,6 +50,14 @@ function getCurrentPage() {
   return 'dashboard'
 }
 
+function AppLoadingMessage() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
+      <p className="text-sm font-medium text-slate-600">Loading LeadRubyOrbit...</p>
+    </main>
+  )
+}
+
 export default function App() {
   const auth = useAuth()
   const [currentPage, setCurrentPage] = useState(getCurrentPage)
@@ -67,11 +78,7 @@ export default function App() {
   }, [])
 
   if (auth.isLoading) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
-        <p className="text-sm font-medium text-slate-600">Loading LeadRubyOrbit...</p>
-      </main>
-    )
+    return <AppLoadingMessage />
   }
 
   if (!auth.isAuthenticated) {
@@ -84,7 +91,11 @@ export default function App() {
   }
 
   if (currentPage === 'workflow-builder') {
-    return <Page onNavigate={handleNavigate} />
+    return (
+      <Suspense fallback={<AppLoadingMessage />}>
+        <Page onNavigate={handleNavigate} />
+      </Suspense>
+    )
   }
 
   return (

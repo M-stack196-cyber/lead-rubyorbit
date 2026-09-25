@@ -213,7 +213,7 @@ const sampleNodeDefinitions = [
     description: 'Branches based on whether a reply exists.',
     icon: 'GitBranch',
     position: { x: 140, y: 780 },
-    settings: { conditionType: 'Reply Received', yesLabel: 'Create Team Decision', noLabel: 'Create Follow-up Draft' },
+    settings: { conditionType: 'Reply Received', yesLabel: 'Yes', noLabel: 'No' },
   },
   {
     id: 'sample-team-decision',
@@ -273,6 +273,9 @@ function WorkflowBuilderContent({ onNavigate }) {
     () => nodes.find((node) => node.id === selectedNodeId) || null,
     [nodes, selectedNodeId],
   )
+  const workflowSummary = useMemo(() => getWorkflowSummary(nodes, edges), [nodes, edges])
+  const validationResult = useMemo(() => validateWorkflow(nodes, edges), [nodes, edges])
+  const hasMultipleTriggers = workflowSummary.triggers > 1
 
   useEffect(() => {
     const savedDraft = window.localStorage.getItem(draftStorageKey)
@@ -291,7 +294,7 @@ function WorkflowBuilderContent({ onNavigate }) {
 
       setWorkflowName(parsedDraft.workflowName || defaultWorkflowName)
       setNodes(draftNodes)
-      setEdges(draftEdges)
+      setEdges(applyConditionEdgeLabels(draftNodes, draftEdges))
       setSelectedNodeId(draftSelectedNodeId)
       setIsDirty(false)
       setMessage('Loaded saved workflow draft from this browser.')
@@ -317,10 +320,10 @@ function WorkflowBuilderContent({ onNavigate }) {
   }, [])
 
   const onConnect = useCallback((connection) => {
-    setEdges((currentEdges) => addEdge(createConnectedEdge(connection), currentEdges))
+    setEdges((currentEdges) => applyConditionEdgeLabels(nodes, addEdge(createConnectedEdge(connection, nodes, currentEdges), currentEdges)))
     setIsDirty(true)
     setMessage('Workflow nodes connected locally.')
-  }, [])
+  }, [nodes])
 
   function markDirty() {
     setIsDirty(true)
@@ -385,8 +388,8 @@ function WorkflowBuilderContent({ onNavigate }) {
   function handleSaveBlockSettings() {
     if (!selectedNode) return
 
-    setNodes((currentNodes) =>
-      currentNodes.map((node) =>
+    setNodes((currentNodes) => {
+      const nextNodes = currentNodes.map((node) =>
         node.id === selectedNode.id
           ? {
               ...node,
@@ -398,8 +401,11 @@ function WorkflowBuilderContent({ onNavigate }) {
               },
             }
           : node,
-      ),
-    )
+      )
+
+      setEdges((currentEdges) => applyConditionEdgeLabels(nextNodes, currentEdges))
+      return nextNodes
+    })
     setIsDirty(true)
     setMessage('Block settings saved locally.')
   }
@@ -438,16 +444,28 @@ function WorkflowBuilderContent({ onNavigate }) {
   }
 
   function handleSaveDraft() {
+    const nextEdges = applyConditionEdgeLabels(nodes, edges)
+    const nextValidationResult = validateWorkflow(nodes, nextEdges)
+
+    setEdges(nextEdges)
     window.localStorage.setItem(
       draftStorageKey,
-      JSON.stringify({ workflowName, nodes, edges, selectedNodeId, savedAt: new Date().toISOString() }, null, 2),
+      JSON.stringify({ workflowName, nodes, edges: nextEdges, selectedNodeId, savedAt: new Date().toISOString() }, null, 2),
     )
     setIsDirty(false)
-    setMessage('Workflow draft saved locally.')
+    setMessage(
+      nextValidationResult.issues.length
+        ? 'Workflow saved locally with validation warnings.'
+        : 'Workflow draft saved locally.',
+    )
   }
 
   function handlePreview() {
     setActiveModal('preview')
+  }
+
+  function handleValidateWorkflow() {
+    setActiveModal('validation')
   }
 
   function handleRunTest() {
@@ -471,6 +489,8 @@ function WorkflowBuilderContent({ onNavigate }) {
       workflowName,
       status: 'Draft',
       mode: 'visual-only',
+      summary: workflowSummary,
+      validationStatus: validationResult.status,
       nodes: nodes.map(serializeNode),
       edges: edges.map(serializeEdge),
     },
@@ -523,6 +543,11 @@ function WorkflowBuilderContent({ onNavigate }) {
               Unsaved changes
             </Badge>
           ) : null}
+          {hasMultipleTriggers ? (
+            <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+              Multiple triggers detected
+            </Badge>
+          ) : null}
           <button
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
             type="button"
@@ -554,6 +579,14 @@ function WorkflowBuilderContent({ onNavigate }) {
           >
             <Save className="h-4 w-4" aria-hidden="true" />
             Save Draft
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            type="button"
+            onClick={handleValidateWorkflow}
+          >
+            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+            Validate
           </button>
           <button
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
@@ -596,6 +629,8 @@ function WorkflowBuilderContent({ onNavigate }) {
         </div>
       ) : null}
 
+      <WorkflowSummaryCards summary={workflowSummary} />
+
       <section className={workspaceGridClass}>
         {!isLibraryCollapsed ? (
           <Card className="flex min-h-[360px] flex-col overflow-hidden xl:h-full xl:min-h-0">
@@ -616,6 +651,7 @@ function WorkflowBuilderContent({ onNavigate }) {
               </div>
             </CardHeader>
             <CardContent className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-4">
+              <BuilderTips />
               {blockCategories.map((category) => (
                 <section className="grid gap-2" key={category.label}>
                   <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -680,10 +716,30 @@ function WorkflowBuilderContent({ onNavigate }) {
                 proOptions={{ hideAttribution: true }}
               >
                 {nodes.length ? null : (
-                  <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 w-80 -translate-x-1/2 -translate-y-1/2 rounded-md border border-dashed border-slate-300 bg-white/95 px-4 py-5 text-center shadow-sm">
-                    <Workflow className="mx-auto h-8 w-8 text-slate-400" aria-hidden="true" />
-                    <p className="mt-2 text-sm font-semibold text-slate-950">Canvas is clear</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">Add blocks from the library or reset the sample workflow.</p>
+                  <div className="absolute left-1/2 top-1/2 z-10 w-96 max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-md border border-dashed border-slate-300 bg-white/95 px-5 py-6 text-center shadow-sm">
+                    <Workflow className="mx-auto h-9 w-9 text-slate-400" aria-hidden="true" />
+                    <p className="mt-3 text-base font-semibold text-slate-950">Start building your workflow</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      Add a trigger from the Block Library, then connect actions, waits, and conditions.
+                    </p>
+                    <div className="mt-4 flex flex-wrap justify-center gap-2">
+                      <button
+                        className="pointer-events-auto inline-flex min-h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-red-800"
+                        type="button"
+                        onClick={() => setIsLibraryCollapsed(false)}
+                      >
+                        <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+                        Add a trigger to begin
+                      </button>
+                      <button
+                        className="pointer-events-auto inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                        type="button"
+                        onClick={handleResetWorkflow}
+                      >
+                        <RefreshCcw className="h-4 w-4" aria-hidden="true" />
+                        Reset to Sample Workflow
+                      </button>
+                    </div>
                   </div>
                 )}
                 <Background color="#cbd5e1" gap={18} size={1} />
@@ -712,12 +768,16 @@ function WorkflowBuilderContent({ onNavigate }) {
         ) : null}
       </section>
 
+      {activeModal === 'validation' ? (
+        <Modal title="Workflow Validation" onClose={() => setActiveModal(null)}>
+          <ValidationResult result={validationResult} />
+        </Modal>
+      ) : null}
+
       {activeModal === 'preview' ? (
         <Modal title="Workflow JSON Preview" onClose={() => setActiveModal(null)}>
-          <p className="mb-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-            Preview only. No backend call is made and no emails are sent.
-          </p>
-          <pre className="max-h-[60vh] overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-5 text-slate-100">
+          <PreviewSummary summary={workflowSummary} />
+          <pre className="mt-4 max-h-[56vh] overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-5 text-slate-100">
             {previewJson}
           </pre>
         </Modal>
@@ -728,11 +788,119 @@ function WorkflowBuilderContent({ onNavigate }) {
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-800">
             Mock test only. No backend automation ran and no emails were sent.
           </div>
+          <div className="mt-4">
+            <ValidationResult result={validationResult} compact />
+          </div>
         </Modal>
       ) : null}
     </div>
   )
 }
+function WorkflowSummaryCards({ summary }) {
+  const cards = [
+    { label: 'Nodes', value: summary.nodes },
+    { label: 'Edges', value: summary.edges },
+    { label: 'Triggers', value: summary.triggers },
+    { label: 'Actions', value: summary.actions },
+    { label: 'Waits', value: summary.waits },
+    { label: 'Conditions', value: summary.conditions },
+  ]
+
+  return (
+    <div className="grid shrink-0 gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 sm:grid-cols-3 xl:grid-cols-6">
+      {cards.map((card) => (
+        <div className="rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm" key={card.label}>
+          <p className="text-[0.68rem] font-semibold uppercase tracking-wide text-slate-500">{card.label}</p>
+          <p className="mt-1 text-lg font-semibold leading-6 text-slate-950">{card.value}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function BuilderTips() {
+  const tips = [
+    'Start with one trigger.',
+    'Connect each step in order.',
+    'Use conditions for reply/no-reply branches.',
+    'Save draft before leaving the page.',
+    'This builder is visual-only for now.',
+  ]
+
+  return (
+    <section className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-blue-800">Builder Tips</h2>
+      <ul className="mt-2 grid gap-1 text-xs leading-5 text-blue-900">
+        {tips.map((tip) => (
+          <li key={tip}>{tip}</li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function PreviewSummary({ summary }) {
+  return (
+    <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-4">
+      <InfoPill label="Nodes" value={summary.nodes} />
+      <InfoPill label="Edges" value={summary.edges} />
+      <InfoPill label="Mode" value="visual-only" />
+      <InfoPill label="Safety" value="no backend call, no emails sent" />
+    </div>
+  )
+}
+
+function InfoPill({ label, value }) {
+  return (
+    <div>
+      <p className="text-[0.68rem] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 font-semibold text-slate-950">{value}</p>
+    </div>
+  )
+}
+
+function ValidationResult({ compact = false, result }) {
+  return (
+    <div className="grid gap-3">
+      <div className={cn('rounded-md border px-3 py-3', validationStatusStyles[result.status])}>
+        <p className="text-sm font-semibold">Validation status: {result.status}</p>
+        <p className="mt-1 text-sm leading-6">{result.summary}</p>
+      </div>
+      {result.issues.length ? (
+        <div className="grid gap-2">
+          {result.issues.map((issue) => (
+            <div className={cn('rounded-md border px-3 py-2', validationStatusStyles[issue.status])} key={issue.id}>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className={cn('text-[0.68rem]', validationBadgeStyles[issue.status])}>
+                  {issue.status}
+                </Badge>
+                <p className="text-sm font-semibold">{issue.title}</p>
+              </div>
+              {!compact ? <p className="mt-1 text-sm leading-6">{issue.message}</p> : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+          No validation issues found for this visual draft.
+        </p>
+      )}
+    </div>
+  )
+}
+
+const validationStatusStyles = {
+  Passed: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+  Warning: 'border-amber-200 bg-amber-50 text-amber-800',
+  Error: 'border-red-200 bg-red-50 text-red-800',
+}
+
+const validationBadgeStyles = {
+  Passed: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  Warning: 'border-amber-200 bg-amber-50 text-amber-700',
+  Error: 'border-red-200 bg-red-50 text-red-700',
+}
+
 function LibraryBlock({ block, category, onAdd, onDragStart }) {
   const Icon = iconMap[block.icon] || Workflow
 
@@ -799,10 +967,10 @@ function WorkflowBlockNode({ data, selected }) {
           {data.kind === 'condition' ? (
             <div className="mt-3 grid grid-cols-2 gap-2 text-center text-[0.68rem] font-semibold">
               <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-700">
-                {data.settings?.yesLabel || 'Yes path'}
+                {data.settings?.yesLabel || 'Yes'}
               </span>
               <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
-                {data.settings?.noLabel || 'No path'}
+                {data.settings?.noLabel || 'No'}
               </span>
             </div>
           ) : null}
@@ -1119,13 +1287,142 @@ function createEdge(source, target, label) {
   }
 }
 
-function createConnectedEdge(connection) {
+function createConnectedEdge(connection, nodes, edges) {
+  const sourceNode = nodes.find((node) => node.id === connection.source)
+  const sourceOutgoingCount = edges.filter((edge) => edge.source === connection.source).length
+  const branchLabel = sourceNode?.data?.kind === 'condition'
+    ? getConditionBranchLabel(sourceNode, sourceOutgoingCount)
+    : undefined
+
   return {
     ...defaultEdgeOptions,
     ...connection,
     id: `edge-${connection.source}-${connection.target}-${Date.now()}`,
+    label: branchLabel,
     type: 'smoothstep',
   }
+}
+
+function getWorkflowSummary(nodes, edges) {
+  return {
+    nodes: nodes.length,
+    edges: edges.length,
+    triggers: nodes.filter((node) => node.data?.kind === 'trigger').length,
+    actions: nodes.filter((node) => node.data?.kind === 'action').length,
+    waits: nodes.filter((node) => node.data?.kind === 'wait').length,
+    conditions: nodes.filter((node) => node.data?.kind === 'condition').length,
+  }
+}
+
+function validateWorkflow(nodes, edges) {
+  const issues = []
+  const triggerNodes = nodes.filter((node) => node.data?.kind === 'trigger')
+
+  if (!nodes.length) {
+    issues.push({
+      id: 'empty-workflow',
+      status: 'Error',
+      title: 'Workflow is empty',
+      message: 'Add a trigger from the Block Library before saving this as an executable workflow later.',
+    })
+  }
+
+  if (!triggerNodes.length && nodes.length) {
+    issues.push({
+      id: 'missing-trigger',
+      status: 'Error',
+      title: 'No trigger found',
+      message: 'At least one trigger is required to define how the workflow starts.',
+    })
+  }
+
+  if (triggerNodes.length > 1) {
+    issues.push({
+      id: 'multiple-triggers',
+      status: 'Warning',
+      title: 'Multiple triggers detected',
+      message: 'Multiple triggers can be used later, but one starting trigger is recommended for this MVP.',
+    })
+  }
+
+  nodes.forEach((node) => {
+    const incomingEdges = edges.filter((edge) => edge.target === node.id)
+    const outgoingEdges = edges.filter((edge) => edge.source === node.id)
+
+    if (node.data?.kind !== 'trigger' && !incomingEdges.length) {
+      issues.push({
+        id: `missing-incoming-${node.id}`,
+        status: 'Error',
+        title: `${node.data?.label || 'Node'} has no incoming connection`,
+        message: 'Every non-trigger node should be connected from a prior workflow step.',
+      })
+    }
+
+    if (!outgoingEdges.length && !isTerminalNode(node)) {
+      issues.push({
+        id: `missing-outgoing-${node.id}`,
+        status: 'Warning',
+        title: `${node.data?.label || 'Node'} has no outgoing connection`,
+        message: 'Every non-final node should have at least one outgoing connection. Nodes without outgoing edges are treated as final visual steps.',
+      })
+    }
+
+    if (node.data?.kind === 'condition' && outgoingEdges.length < 2) {
+      issues.push({
+        id: `condition-branches-${node.id}`,
+        status: 'Error',
+        title: `${node.data?.label || 'Condition'} needs Yes and No paths`,
+        message: 'Condition nodes should have at least two outgoing connections for clear branch behavior.',
+      })
+    }
+  })
+
+  const hasErrors = issues.some((issue) => issue.status === 'Error')
+  const status = hasErrors ? 'Error' : issues.length ? 'Warning' : 'Passed'
+
+  return {
+    status,
+    issues,
+    summary: status === 'Passed'
+      ? 'Workflow structure looks ready for a visual draft.'
+      : 'Review these items before treating this workflow as production-ready later.',
+  }
+}
+
+function isTerminalNode(node) {
+  return ['Stop Lead', 'Pause Lead', 'Create Team Decision', 'Create Follow-up Draft'].includes(node.data?.label)
+}
+
+function applyConditionEdgeLabels(nodes, edges) {
+  const edgesByCondition = new Map()
+
+  edges.forEach((edge) => {
+    const sourceNode = nodes.find((node) => node.id === edge.source)
+    if (sourceNode?.data?.kind !== 'condition') return
+
+    const currentEdges = edgesByCondition.get(edge.source) || []
+    currentEdges.push(edge)
+    edgesByCondition.set(edge.source, currentEdges)
+  })
+
+  return edges.map((edge) => {
+    const sourceNode = nodes.find((node) => node.id === edge.source)
+    if (sourceNode?.data?.kind !== 'condition') return edge
+
+    const conditionEdges = edgesByCondition.get(edge.source) || []
+    if (conditionEdges.length < 2) return edge
+
+    const branchIndex = conditionEdges.findIndex((conditionEdge) => conditionEdge.id === edge.id)
+    if (branchIndex === 0) return { ...edge, label: sourceNode.data.settings?.yesLabel || 'Yes' }
+    if (branchIndex === 1) return { ...edge, label: sourceNode.data.settings?.noLabel || 'No' }
+    return edge
+  })
+}
+
+function getConditionBranchLabel(node, outgoingCount) {
+  if (outgoingCount === 0) return node.data?.settings?.yesLabel || 'Yes'
+  if (outgoingCount === 1) return node.data?.settings?.noLabel || 'No'
+  return undefined
 }
 
 function createNodeId() {
@@ -1184,8 +1481,8 @@ function createSettingsForm(node) {
       notificationMessage: '',
       duration: '1',
       unit: 'days',
-      yesLabel: 'Yes path',
-      noLabel: 'No path',
+      yesLabel: 'Yes',
+      noLabel: 'No',
     }
   }
 
@@ -1200,8 +1497,8 @@ function createSettingsForm(node) {
     notificationMessage: node.data.settings?.notificationMessage || '',
     duration: node.data.settings?.duration || '1',
     unit: node.data.settings?.unit || 'days',
-    yesLabel: node.data.settings?.yesLabel || 'Yes path',
-    noLabel: node.data.settings?.noLabel || 'No path',
+    yesLabel: node.data.settings?.yesLabel || 'Yes',
+    noLabel: node.data.settings?.noLabel || 'No',
   }
 }
 
@@ -1257,7 +1554,7 @@ function defaultSettingsForKind(kind, label) {
     }
   }
   if (kind === 'wait') return { duration: parseWaitDuration(label), unit: parseWaitUnit(label) }
-  if (kind === 'condition') return { conditionType: label.replace(/^If /, ''), yesLabel: 'Yes path', noLabel: 'No path' }
+  if (kind === 'condition') return { conditionType: label.replace(/^If /, ''), yesLabel: 'Yes', noLabel: 'No' }
   return {}
 }
 
