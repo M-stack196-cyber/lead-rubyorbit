@@ -8,9 +8,11 @@ import { LeadUploadsPage } from '@/pages/LeadUploadsPage'
 import { LeadsPage } from '@/pages/LeadsPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { NotificationsPage } from '@/pages/NotificationsPage'
+import { WorkflowBuilderPage } from '@/pages/WorkflowBuilderPage'
 import {
   EmailDraftsPage,
   FollowUpsPage,
+  ManualComposePage,
   RepliesPage,
   TeamDecisionsPage,
 } from '@/pages/QueuesPage'
@@ -25,11 +27,13 @@ const pages = {
   'follow-ups': FollowUpsPage,
   'lead-uploads': LeadUploadsPage,
   leads: LeadsPage,
+  'manual-compose': ManualComposePage,
   notifications: NotificationsPage,
   'audit-logs': AuditLogsPage,
   replies: RepliesPage,
   'team-decisions': TeamDecisionsPage,
   'team-members': TeamMembersPage,
+  'workflow-builder': WorkflowBuilderPage,
   'workflow-settings': WorkflowSettingsPage,
 }
 
@@ -49,14 +53,16 @@ export default function App() {
   const Page = pages[currentPage]
 
   useEffect(() => {
-    function handleHashChange() {
+    function handleLocationChange() {
       setCurrentPage(getCurrentPage())
     }
 
-    window.addEventListener('hashchange', handleHashChange)
+    window.addEventListener('hashchange', handleLocationChange)
+    window.addEventListener('popstate', handleLocationChange)
 
     return () => {
-      window.removeEventListener('hashchange', handleHashChange)
+      window.removeEventListener('hashchange', handleLocationChange)
+      window.removeEventListener('popstate', handleLocationChange)
     }
   }, [])
 
@@ -72,8 +78,19 @@ export default function App() {
     return <LoginPage error={auth.error} isLoading={auth.isLoading} onLogin={auth.login} />
   }
 
+  function handleNavigate(page) {
+    window.history.pushState(null, '', `/${page}`)
+    setCurrentPage(page)
+  }
+
   return (
-    <AppLayout currentPage={currentPage} onLogout={auth.logout} profile={auth.profile}>
+    <AppLayout
+      authRequired={auth.authRequired}
+      currentPage={currentPage}
+      onLogout={auth.logout}
+      onNavigate={handleNavigate}
+      profile={auth.profile}
+    >
       <Page />
     </AppLayout>
   )

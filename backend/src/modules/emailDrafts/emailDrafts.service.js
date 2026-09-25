@@ -120,6 +120,8 @@ function requireNonEmptyBody(body, message = 'Body is required.') {
 }
 
 function mapDraft(row) {
+  const leadName = row.leads?.name || row.leads?.email || null
+
   return {
     id: row.id,
     campaignId: row.campaign_id,
@@ -133,7 +135,7 @@ function mapDraft(row) {
     body: row.body,
     status: row.status,
     aiGenerated: row.ai_generated,
-  createdBy: row.created_by,
+    createdBy: row.created_by,
     aiModel: row.ai_model,
     aiPrompt: row.ai_prompt,
     aiTone: row.ai_tone,
@@ -145,6 +147,7 @@ function mapDraft(row) {
     rejectedAt: row.rejected_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    leadName,
     lead: row.leads
       ? {
           id: row.leads.id,
@@ -202,7 +205,7 @@ const draftSelect = `
     email,
     company
   ),
-  campaign_leads (
+  campaign_leads!email_drafts_campaign_lead_id_fkey (
     id,
     outreach_status,
     ghl_sync_status

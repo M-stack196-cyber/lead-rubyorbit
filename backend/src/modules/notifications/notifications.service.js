@@ -100,9 +100,45 @@ function mapNotification(row) {
     resolvedAt: row.resolved_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    campaign: null,
-    lead: null,
+    campaign: row.campaign || null,
+    lead: row.lead || null,
+    campaignName: row.campaign?.name || row.metadata?.campaignName || null,
+    leadName: row.lead?.name || row.lead?.email || row.metadata?.leadName || null,
   }
+}
+
+async function enrichNotificationEntities(supabase, rows = []) {
+  const campaignIds = [...new Set(rows.map((row) => row.campaign_id).filter(Boolean))]
+  const leadIds = [...new Set(rows.map((row) => row.lead_id).filter(Boolean))]
+  const [campaignResult, leadResult] = await Promise.all([
+    campaignIds.length
+      ? scopeWorkspace(
+          supabase.from('campaigns').select('id, name, status').in('id', campaignIds),
+        )
+      : Promise.resolve({ data: [], error: null }),
+    leadIds.length
+      ? scopeWorkspace(
+          supabase.from('leads').select('id, name, email, company').in('id', leadIds),
+        )
+      : Promise.resolve({ data: [], error: null }),
+  ])
+
+  if (campaignResult.error) {
+    throw createHttpError(campaignResult.error.message, 500)
+  }
+
+  if (leadResult.error) {
+    throw createHttpError(leadResult.error.message, 500)
+  }
+
+  const campaignsById = new Map((campaignResult.data || []).map((campaign) => [campaign.id, campaign]))
+  const leadsById = new Map((leadResult.data || []).map((lead) => [lead.id, lead]))
+
+  return rows.map((row) => ({
+    ...row,
+    campaign: campaignsById.get(row.campaign_id) || null,
+    lead: leadsById.get(row.lead_id) || null,
+  }))
 }
 
 function toNotificationInsert(payload = {}) {
@@ -263,7 +299,8 @@ export async function listNotifications(filters = {}) {
     throw createHttpError(error.message, 500)
   }
 
-  return (data || []).map(mapNotification)
+  const rows = await enrichNotificationEntities(supabase, data || [])
+  return rows.map(mapNotification)
 }
 
 export async function getNotificationById(notificationId) {
@@ -281,7 +318,8 @@ export async function getNotificationById(notificationId) {
     )
   }
 
-  return mapNotification(data)
+  const rows = await enrichNotificationEntities(supabase, [data])
+  return mapNotification(rows[0])
 }
 
 async function updateNotificationStatus(notificationId, status) {

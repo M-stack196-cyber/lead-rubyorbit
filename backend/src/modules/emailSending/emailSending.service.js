@@ -20,7 +20,7 @@ const draftSelect = `
     email,
     company
   ),
-  campaign_leads (
+  campaign_leads!email_drafts_campaign_lead_id_fkey (
     id,
     outreach_status
   )

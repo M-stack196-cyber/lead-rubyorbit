@@ -1,8 +1,6 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
 import {
   getCurrentWorkspaceId,
-  scopeWorkspace,
-  withWorkspaceFields,
 } from '../../middleware/workspace.js'
 
 const allowedRoles = new Set(['admin', 'manager', 'operator', 'viewer'])
@@ -85,11 +83,48 @@ async function upsertWorkspaceMembership(supabase, member, role) {
   }
 }
 
+async function getWorkspaceMemberIds(supabase) {
+  const workspaceId = getCurrentWorkspaceId()
+  const { data, error } = await supabase
+    .from('workspace_memberships')
+    .select('team_member_id')
+    .eq('workspace_id', workspaceId)
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  return (data || []).map((row) => row.team_member_id)
+}
+
+async function assertWorkspaceMember(supabase, memberId) {
+  const workspaceId = getCurrentWorkspaceId()
+  const { data, error } = await supabase
+    .from('workspace_memberships')
+    .select('team_member_id')
+    .eq('workspace_id', workspaceId)
+    .eq('team_member_id', memberId)
+    .maybeSingle()
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  if (!data) {
+    throw createHttpError('Team member not found in this workspace.', 404)
+  }
+}
+
 export async function listTeamMembers() {
   const supabase = getSupabaseClient()
-  const { data, error } = await scopeWorkspace(
-    supabase.from('team_members').select(memberSelect),
-  )
+  const memberIds = await getWorkspaceMemberIds(supabase)
+
+  if (!memberIds.length) return []
+
+  const { data, error } = await supabase
+    .from('team_members')
+    .select(memberSelect)
+    .in('id', memberIds)
     .order('created_at', { ascending: false })
 
   if (error) {
@@ -108,13 +143,13 @@ export async function createTeamMember(payload = {}) {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase
     .from('team_members')
-    .insert(withWorkspaceFields({
+    .insert({
       full_name: String(payload.fullName || '').trim() || null,
       email: String(payload.email).trim().toLowerCase(),
       role,
       status: payload.status || 'active',
       auth_user_id: payload.authUserId || null,
-    }))
+    })
     .select(memberSelect)
     .single()
 
@@ -153,9 +188,11 @@ export async function updateTeamMember(memberId, payload = {}) {
   }
 
   const supabase = getSupabaseClient()
-  const { data, error } = await scopeWorkspace(
-    supabase.from('team_members').update(updates),
-  )
+  await assertWorkspaceMember(supabase, memberId)
+
+  const { data, error } = await supabase
+    .from('team_members')
+    .update(updates)
     .eq('id', memberId)
     .select(memberSelect)
     .single()

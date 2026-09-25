@@ -4,10 +4,20 @@ Phase 9 requires real Supabase Auth users linked to `team_members.auth_user_id`.
 
 ## Current Staging State
 
-- `team_members`: 0
-- `workspace_memberships`: 0
-- linked Auth users: 0
-- Admin/Manager/Operator/Viewer memberships: 0 each
+- Admin: pass, 1 active linked member
+- Manager: pass, 1 active linked member
+- Operator: pass, 1 active linked member
+- Viewer: pass, 1 active linked member
+
+Dedicated staging Auth users are linked for:
+
+- `admin+staging@leadrubyorbit.test`
+- `manager+staging@leadrubyorbit.test`
+- `operator+staging@leadrubyorbit.test`
+- `viewer+staging@leadrubyorbit.test`
+
+Temporary passwords were generated in-process during verification and are not stored in the repo.
+Rotate them with `npm run staging:seed-role-users` before manual login testing.
 
 ## Required Setup
 

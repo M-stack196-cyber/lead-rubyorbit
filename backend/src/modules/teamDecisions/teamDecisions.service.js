@@ -1,5 +1,9 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
-import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
+import {
+  getCurrentWorkspaceId,
+  scopeWorkspace,
+  withWorkspaceFields,
+} from '../../middleware/workspace.js'
 
 const allowedDecisionTypes = new Set([
   'stop_outreach',
@@ -24,6 +28,7 @@ const decisionSelect = `
   decision_type,
   action,
   status,
+  reason,
   notes,
   assigned_to,
   resolved_at,
@@ -86,10 +91,12 @@ function validateDecisionType(decisionType) {
 async function validateAssignedTeamMember(supabase, assignedTo) {
   if (!assignedTo) return
 
-  const { data, error } = await scopeWorkspace(
-    supabase.from('team_members').select('id'),
-  )
-    .eq('id', assignedTo)
+  const { data, error } = await supabase
+    .from('workspace_memberships')
+    .select('team_member_id')
+    .eq('workspace_id', getCurrentWorkspaceId())
+    .eq('team_member_id', assignedTo)
+    .eq('status', 'active')
     .maybeSingle()
 
   if (error) {
@@ -108,6 +115,9 @@ function validateStatus(status) {
 }
 
 function mapDecision(row, extra = {}) {
+  const leadName = row.leads?.name || row.leads?.email || null
+  const reason = row.reason || row.notes || row.replies?.body_preview || row.sent_emails?.subject || null
+
   return {
     id: row.id,
     campaignId: row.campaign_id,
@@ -117,12 +127,14 @@ function mapDecision(row, extra = {}) {
     sentEmailId: row.sent_email_id,
     decisionType: row.decision_type || row.action,
     status: row.status,
+    reason,
     notes: row.notes,
     assignedTo: row.assigned_to,
     resolvedAt: row.resolved_at,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    leadName,
     lead: row.leads
       ? {
           id: row.leads.id,

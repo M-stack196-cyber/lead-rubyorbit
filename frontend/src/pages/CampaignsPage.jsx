@@ -1423,6 +1423,7 @@ function CampaignListCard({ campaigns, isLoading, selectedCampaignId, onSelect }
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Leads</th>
                     <th className="px-4 py-3">Created</th>
+                    <th className="px-4 py-3">Manage</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 bg-white">
@@ -1434,6 +1435,13 @@ function CampaignListCard({ campaigns, isLoading, selectedCampaignId, onSelect }
                         selectedCampaignId === campaign.id && 'bg-red-50/60',
                       )}
                       onClick={() => onSelect(campaign.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          onSelect(campaign.id)
+                        }
+                      }}
+                      tabIndex={0}
                     >
                       <td className="min-w-56 px-4 py-3">
                         <p className="font-medium text-slate-950">{campaign.name}</p>
@@ -1449,6 +1457,18 @@ function CampaignListCard({ campaigns, isLoading, selectedCampaignId, onSelect }
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-700">
                         {formatDate(campaign.created_at)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <button
+                          className="inline-flex min-h-9 items-center justify-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onSelect(campaign.id)
+                          }}
+                        >
+                          View / Manage
+                        </button>
                       </td>
                     </tr>
                   ))}

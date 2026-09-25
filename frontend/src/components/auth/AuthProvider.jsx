@@ -59,6 +59,11 @@ export function AuthProvider({ children }) {
   }
 
   async function logout() {
+    if (!authRequired) {
+      setError('Demo mode is active. Enable auth to use sign out.')
+      return
+    }
+
     await signOut(session)
     setSession(null)
     setProfile(null)

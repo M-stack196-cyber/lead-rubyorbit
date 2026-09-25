@@ -141,8 +141,12 @@ export function WorkflowSettingsPage() {
     (account) => account.gmailTokenStatus === 'connected',
   )
   const readinessIssues = [
-    sendStatus?.realSendingEnabled ? null : 'Live sending is disabled; EMAIL_SEND_MODE remains safe.',
-    gmailStatus?.connectedAccounts ? null : 'No connected Gmail account is ready.',
+    sendStatus?.realSendingEnabled
+      ? null
+      : connectedAccounts.length
+        ? 'Gmail account connected, but live sending is disabled because EMAIL_SEND_MODE=mock.'
+        : 'Live sending is disabled; EMAIL_SEND_MODE remains safe.',
+    connectedAccounts.length ? null : 'No connected Gmail account is ready.',
     emailAccounts.some((account) => account.isEnabled) ? null : 'No enabled sender account found.',
   ].filter(Boolean)
 

@@ -38,7 +38,7 @@ const draftSelect = `
     email,
     company
   ),
-  campaign_leads (
+  campaign_leads!email_drafts_campaign_lead_id_fkey (
     id,
     outreach_status,
     followup_count,
@@ -95,7 +95,7 @@ const noReplySentEmailSelect = `
     email,
     company
   ),
-  campaign_leads (
+  campaign_leads!sent_emails_campaign_lead_id_fkey (
     id,
     outreach_status,
     followup_count,
@@ -126,6 +126,8 @@ function validateRequired(value, message) {
 }
 
 function mapDraft(row, extra = {}) {
+  const leadName = row.leads?.name || row.leads?.email || null
+
   return {
     id: row.id,
     campaignId: row.campaign_id,
@@ -152,6 +154,7 @@ function mapDraft(row, extra = {}) {
     rejectedAt: row.rejected_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    leadName,
     lead: row.leads
       ? {
           id: row.leads.id,
