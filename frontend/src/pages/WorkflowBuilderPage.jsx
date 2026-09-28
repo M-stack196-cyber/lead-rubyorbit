@@ -51,7 +51,13 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
-import { createWorkflowDraft, deleteWorkflowDraft, getWorkflowDrafts, updateWorkflowDraft } from '@/services/api'
+import {
+  createWorkflowDraft,
+  deleteWorkflowDraft,
+  getWorkflowDrafts,
+  updateWorkflowDraft,
+  validateWorkflowSchema,
+} from '@/services/api'
 
 const draftStorageKey = 'leadrubyorbit.workflowBuilderDraft'
 const nodeType = 'workflowBlock'
@@ -310,6 +316,9 @@ function WorkflowBuilderContent({ onNavigate }) {
   const [draftsError, setDraftsError] = useState('')
   const [draftActionId, setDraftActionId] = useState('')
   const [schemaCopyMessage, setSchemaCopyMessage] = useState('')
+  const [backendCompatibilityResult, setBackendCompatibilityResult] = useState(null)
+  const [backendCompatibilityError, setBackendCompatibilityError] = useState('')
+  const [isBackendCompatibilityLoading, setIsBackendCompatibilityLoading] = useState(false)
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || null,
@@ -757,6 +766,19 @@ function WorkflowBuilderContent({ onNavigate }) {
     setActiveModal('preview')
   }
 
+  async function handleBackendCompatibilityCheck() {
+    setIsBackendCompatibilityLoading(true)
+    setBackendCompatibilityError('')
+
+    try {
+      setBackendCompatibilityResult(await validateWorkflowSchema(workflowSchema))
+    } catch (error) {
+      setBackendCompatibilityError(error.message || 'Could not validate workflow schema with backend.')
+    } finally {
+      setIsBackendCompatibilityLoading(false)
+    }
+  }
+
   async function handleCopySchemaJson() {
     try {
       await navigator.clipboard.writeText(previewJson)
@@ -767,6 +789,7 @@ function WorkflowBuilderContent({ onNavigate }) {
   }
 
   function handleValidateWorkflow() {
+    setBackendCompatibilityError('')
     setActiveModal('validation')
   }
 
@@ -828,6 +851,11 @@ function WorkflowBuilderContent({ onNavigate }) {
   }, [selectedEdge, selectedNode])
 
   const previewJson = JSON.stringify(workflowSchema, null, 2)
+
+  useEffect(() => {
+    setBackendCompatibilityResult(null)
+    setBackendCompatibilityError('')
+  }, [workflowSchema])
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-slate-100 text-slate-950">
@@ -1140,7 +1168,13 @@ function WorkflowBuilderContent({ onNavigate }) {
       {activeModal === 'validation' ? (
         <Modal title="Workflow Validation" onClose={() => setActiveModal(null)}>
           <ValidationResult result={validationResult} />
-          <CompatibilitySummary result={compatibilityResult} />
+          <CompatibilitySummary result={compatibilityResult} title="Local Compatibility Check" />
+          <BackendSchemaCheck
+            error={backendCompatibilityError}
+            isLoading={isBackendCompatibilityLoading}
+            onCheck={handleBackendCompatibilityCheck}
+            result={backendCompatibilityResult}
+          />
         </Modal>
       ) : null}
 
@@ -1151,8 +1185,14 @@ function WorkflowBuilderContent({ onNavigate }) {
             Preview only. This workflow does not execute automation or send emails.
           </div>
           <div className="max-h-72 overflow-y-auto pr-1">
-            <CompatibilitySummary result={compatibilityResult} />
+            <CompatibilitySummary result={compatibilityResult} title="Local Compatibility Check" />
           </div>
+          <BackendSchemaCheck
+            error={backendCompatibilityError}
+            isLoading={isBackendCompatibilityLoading}
+            onCheck={handleBackendCompatibilityCheck}
+            result={backendCompatibilityResult}
+          />
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <button
               className="inline-flex min-h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
@@ -1379,15 +1419,19 @@ function PreviewSummary({ summary }) {
   )
 }
 
-function CompatibilitySummary({ result }) {
+function CompatibilitySummary({
+  description = 'Informational only. No backend execution APIs are called.',
+  result,
+  title = 'Backend Compatibility Check',
+}) {
   const counts = getCompatibilityCheckCounts(result)
 
   return (
     <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold text-slate-950">Backend Compatibility Check</p>
-          <p className="mt-1 text-xs text-slate-600">Informational only. No backend execution APIs are called.</p>
+          <p className="text-sm font-semibold text-slate-950">{title}</p>
+          <p className="mt-1 text-xs text-slate-600">{description}</p>
         </div>
         <Badge variant="outline" className={cn('text-[0.68rem]', validationBadgeStyles[result.status])}>
           {result.status}
@@ -1411,6 +1455,42 @@ function CompatibilitySummary({ result }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+function BackendSchemaCheck({ error, isLoading, onCheck, result }) {
+  return (
+    <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-blue-950">Backend schema validator</p>
+          <p className="mt-1 text-xs text-blue-800">Validation only. No workflow is saved, executed, or sent.</p>
+        </div>
+        <button
+          className="inline-flex min-h-9 items-center justify-center rounded-md border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-800 shadow-sm transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={isLoading}
+          type="button"
+          onClick={onCheck}
+        >
+          {isLoading ? 'Checking...' : 'Check with Backend'}
+        </button>
+      </div>
+      {isLoading ? (
+        <p className="mt-3 text-sm font-medium text-blue-800">Checking backend compatibility...</p>
+      ) : null}
+      {error ? (
+        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+          {error}
+        </p>
+      ) : null}
+      {result ? (
+        <CompatibilitySummary
+          description="Server-side compatibility validation only. No automation was executed."
+          result={result}
+          title="Backend Compatibility Check"
+        />
+      ) : null}
     </div>
   )
 }

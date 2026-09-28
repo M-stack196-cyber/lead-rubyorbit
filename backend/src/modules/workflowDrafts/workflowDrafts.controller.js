@@ -5,6 +5,7 @@ import {
   listWorkflowDrafts,
   updateWorkflowDraft,
 } from './workflowDrafts.service.js'
+import { validateWorkflowSchemaPayload } from './workflowSchemaValidator.service.js'
 
 function getRequestContext(req) {
   return {
@@ -62,6 +63,17 @@ export async function deleteWorkflowDraftController(req, res, next) {
     res.json({
       message: 'Workflow draft deleted successfully.',
       data: await deleteWorkflowDraft(req.params.id, getRequestContext(req)),
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function validateWorkflowSchemaController(req, res, next) {
+  try {
+    res.json({
+      message: 'Workflow schema validated successfully. No automation was executed.',
+      data: validateWorkflowSchemaPayload(req.body),
     })
   } catch (error) {
     next(error)

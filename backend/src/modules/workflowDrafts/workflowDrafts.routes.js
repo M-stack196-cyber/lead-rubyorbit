@@ -6,6 +6,7 @@ import {
   getWorkflowDraftByIdController,
   listWorkflowDraftsController,
   updateWorkflowDraftController,
+  validateWorkflowSchemaController,
 } from './workflowDrafts.controller.js'
 import { auditAction } from '../../middleware/audit.js'
 import { permissions, requirePermission } from '../../middleware/permissions.js'
@@ -27,6 +28,12 @@ workflowDraftsRouter.get(
   '/',
   requirePermission(permissions.AUTOMATION_MANAGE),
   listWorkflowDraftsController,
+)
+
+workflowDraftsRouter.post(
+  '/schema/validate',
+  requirePermission(permissions.AUTOMATION_MANAGE),
+  validateWorkflowSchemaController,
 )
 
 workflowDraftsRouter.get(

@@ -687,6 +687,19 @@ export async function deleteWorkflowDraft(workflowDraftId) {
   return payload.data
 }
 
+export async function validateWorkflowSchema(schema) {
+  const response = await fetch(API_BASE_URL + '/api/workflows/schema/validate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ schema }),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
 export async function getTeamMembers() {
   const response = await fetch(`${API_BASE_URL}/api/team-members`)
 

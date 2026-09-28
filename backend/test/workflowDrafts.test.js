@@ -11,6 +11,7 @@ import {
   listWorkflowDrafts,
   updateWorkflowDraft,
 } from '../src/modules/workflowDrafts/workflowDrafts.service.js'
+import { validateWorkflowSchemaPayload } from '../src/modules/workflowDrafts/workflowSchemaValidator.service.js'
 
 afterEach(() => {
   env.auth.required = true
@@ -232,4 +233,149 @@ test('workflow drafts migration creates workspace-scoped visual draft table with
     /create policy workflow_drafts_workspace_member_select[\s\S]*?for select[\s\S]*?using \(public\.workspace_member_can_access\(workspace_id\)\);/,
   )
   assert.equal(/create policy[\s\S]*?for all/i.test(migration), false)
+})
+
+function createVisualWorkflowSchema(overrides = {}) {
+  const nodes = overrides.nodes || [
+    {
+      id: 'trigger-1',
+      type: 'trigger',
+      category: 'Trigger',
+      label: 'Lead Added to Campaign',
+      typeKey: 'trigger.lead_added_to_campaign',
+      module: 'campaigns',
+      operation: 'attachedToCampaign',
+      safety: 'visual-only',
+      executionEnabled: false,
+      settings: {},
+    },
+    {
+      id: 'action-1',
+      type: 'action',
+      category: 'Action',
+      label: 'Create AI Draft',
+      typeKey: 'action.create_ai_draft',
+      module: 'emailDrafts',
+      operation: 'createDraft',
+      safety: 'visual-only',
+      executionEnabled: false,
+      settings: {},
+    },
+  ]
+
+  return {
+    schemaVersion: 'visual-workflow-v1',
+    workflowName: 'Validated Workflow',
+    status: 'Draft',
+    mode: 'visual-only',
+    executionEnabled: false,
+    safety: 'visual-only',
+    nodes,
+    edges: overrides.edges || [
+      {
+        id: 'edge-1',
+        source: 'trigger-1',
+        target: 'action-1',
+        label: '',
+      },
+    ],
+    ...overrides,
+  }
+}
+
+test('workflow schema validator returns Passed for a valid visual schema', () => {
+  const report = validateWorkflowSchemaPayload(createVisualWorkflowSchema())
+
+  assert.equal(report.status, 'Passed')
+  assert.equal(report.summary.nodes, 2)
+  assert.equal(report.summary.edges, 1)
+  assert.equal(report.summary.triggers, 1)
+  assert.equal(report.summary.actions, 1)
+  assert.equal(report.summary.mappedBlocks, 2)
+  assert.equal(report.summary.unmappedBlocks, 0)
+})
+
+test('workflow schema validator returns Error for executionEnabled true', () => {
+  const schema = createVisualWorkflowSchema({ executionEnabled: true })
+  schema.nodes[1] = { ...schema.nodes[1], executionEnabled: true }
+
+  const report = validateWorkflowSchemaPayload(schema)
+
+  assert.equal(report.status, 'Error')
+  assert.equal(report.checks.some((check) => check.id === 'schema-execution-disabled' && check.status === 'Error'), true)
+  assert.equal(report.checks.some((check) => check.id === 'node-execution-disabled' && check.status === 'Error'), true)
+  assert.equal(report.checks.some((check) => check.id === 'no-execution-enabled-nodes' && check.status === 'Error'), true)
+})
+
+test('workflow schema validator returns Error for non visual-only safety', () => {
+  const schema = createVisualWorkflowSchema({ safety: 'automation' })
+  schema.nodes[0] = { ...schema.nodes[0], safety: 'automation' }
+
+  const report = validateWorkflowSchemaPayload(schema)
+
+  assert.equal(report.status, 'Error')
+  assert.equal(report.checks.some((check) => check.id === 'schema-safety' && check.status === 'Error'), true)
+  assert.equal(report.checks.some((check) => check.id === 'node-visual-only-safety' && check.status === 'Error'), true)
+})
+
+test('workflow schema validator returns Error for broken edge references', () => {
+  const report = validateWorkflowSchemaPayload(createVisualWorkflowSchema({
+    edges: [{ id: 'edge-broken', source: 'trigger-1', target: 'missing-node' }],
+  }))
+
+  assert.equal(report.status, 'Error')
+  assert.equal(report.checks.some((check) => check.id === 'edge-node-references' && check.status === 'Error'), true)
+})
+
+test('workflow schema validator returns Warning for missing or unknown module operation mapping', () => {
+  const schema = createVisualWorkflowSchema()
+  schema.nodes[1] = {
+    ...schema.nodes[1],
+    module: 'unknown',
+    operation: 'unknown',
+  }
+
+  const report = validateWorkflowSchemaPayload(schema)
+
+  assert.equal(report.status, 'Warning')
+  assert.equal(report.summary.mappedBlocks, 1)
+  assert.equal(report.summary.unmappedBlocks, 1)
+  assert.equal(report.checks.some((check) => check.id === 'known-module-operation' && check.status === 'Warning'), true)
+})
+
+test('workflow schema validation endpoint requires auth before validation', async () => {
+  env.auth.required = true
+
+  const { response, payload } = await requestApp('/api/workflows/schema/validate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(createVisualWorkflowSchema()),
+  })
+
+  assert.equal(response.status, 401)
+  assert.equal(payload.message, 'Authentication token is required.')
+})
+
+test('workflow schema validation endpoint validates visual schema without persistence', async () => {
+  env.auth.required = false
+
+  const { response, payload } = await requestApp('/api/workflows/schema/validate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ schema: createVisualWorkflowSchema() }),
+  })
+
+  assert.equal(response.status, 200)
+  assert.equal(payload.message, 'Workflow schema validated successfully. No automation was executed.')
+  assert.equal(payload.data.status, 'Passed')
+  assert.equal(payload.data.summary.nodes, 2)
+})
+
+test('workflow schema validator does not import execution or email services', () => {
+  const service = fs.readFileSync(
+    new URL('../src/modules/workflowDrafts/workflowSchemaValidator.service.js', import.meta.url),
+    'utf8',
+  )
+
+  assert.equal(/emailSending|gmail|smtp|automation\.scheduler|sendGmailMessage|sendSmtpMessage|sendMockEmail/.test(service), false)
 })
