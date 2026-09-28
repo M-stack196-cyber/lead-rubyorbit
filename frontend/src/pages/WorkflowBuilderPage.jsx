@@ -147,6 +147,38 @@ const minimapColors = {
   Condition: '#ede9fe',
 }
 
+const visualOnlySafety = 'visual-only'
+
+const blockMappingByLabel = {
+  'Lead Uploaded': { typeKey: 'trigger.lead_uploaded', module: 'leads', operation: 'imported' },
+  'Lead Added to Campaign': { typeKey: 'trigger.lead_added_to_campaign', module: 'campaigns', operation: 'attachedToCampaign' },
+  'Email Sent': { typeKey: 'trigger.email_sent', module: 'emailDrafts', operation: 'emailSent' },
+  'Reply Received': { typeKey: 'trigger.reply_received', module: 'replyMonitoring', operation: 'replyReceived' },
+  'No Reply Detected': { typeKey: 'trigger.no_reply_detected', module: 'replyMonitoring', operation: 'noReplyDetected' },
+  'Draft Approved': { typeKey: 'trigger.draft_approved', module: 'approvals', operation: 'draftApproved' },
+  'Create Manual Draft': { typeKey: 'action.create_manual_draft', module: 'emailDrafts', operation: 'createManualDraft' },
+  'Create AI Draft': { typeKey: 'action.create_ai_draft', module: 'emailDrafts', operation: 'createDraft' },
+  'Send Approved Email': { typeKey: 'action.send_approved_email', module: 'emailDrafts', operation: 'sendApproved' },
+  'Create Follow-up Draft': { typeKey: 'action.create_follow_up_draft', module: 'followUps', operation: 'createFollowUpDraft' },
+  'Create Team Decision': { typeKey: 'action.create_team_decision', module: 'approvals', operation: 'createTeamDecision' },
+  'Move Lead Status': { typeKey: 'action.move_lead_status', module: 'leads', operation: 'moveLeadStatus' },
+  'Assign Team Member': { typeKey: 'action.assign_team_member', module: 'approvals', operation: 'assignTeamMember' },
+  'Send Notification': { typeKey: 'action.send_notification', module: 'notifications', operation: 'sendNotification' },
+  'Pause Lead': { typeKey: 'action.pause_lead', module: 'leads', operation: 'pauseLead' },
+  'Stop Lead': { typeKey: 'action.stop_lead', module: 'leads', operation: 'stopLead' },
+  'Wait 5 Minutes': { typeKey: 'wait.wait_minutes', module: 'workflowTiming', operation: 'waitMinutes' },
+  'Wait 1 Hour': { typeKey: 'wait.wait_hours', module: 'workflowTiming', operation: 'waitHours' },
+  'Wait 1 Day': { typeKey: 'wait.wait_days', module: 'workflowTiming', operation: 'waitDays' },
+  'Wait Custom Time': { typeKey: 'wait.wait_custom_time', module: 'workflowTiming', operation: 'waitCustomTime' },
+  'Wait for Approval': { typeKey: 'wait.wait_for_approval', module: 'approvals', operation: 'waitForApproval' },
+  'Wait 2 Days': { typeKey: 'wait.wait_days', module: 'workflowTiming', operation: 'waitDays' },
+  'If Reply Received': { typeKey: 'condition.reply_received', module: 'replyMonitoring', operation: 'checkReply' },
+  'If No Reply': { typeKey: 'condition.no_reply', module: 'replyMonitoring', operation: 'checkNoReply' },
+  'If Draft Approved': { typeKey: 'condition.approval_status', module: 'approvals', operation: 'checkApproval' },
+  'If Lead Interested': { typeKey: 'condition.lead_interested', module: 'leads', operation: 'checkLeadInterest' },
+  'If Lead Not Interested': { typeKey: 'condition.lead_not_interested', module: 'leads', operation: 'checkLeadInterest' },
+}
+
 const defaultWorkflowName = 'New Outreach Workflow'
 const nodeTypes = { [nodeType]: WorkflowBlockNode }
 const defaultEdgeOptions = {
@@ -776,9 +808,10 @@ function WorkflowBuilderContent({ onNavigate }) {
       workflowName,
       status: 'Draft',
       mode: 'visual-only',
+      executionEnabled: false,
       summary: workflowSummary,
       validationStatus: validationResult.status,
-      nodes: nodes.map(serializeNode),
+      nodes: normalizeSavedNodes(nodes).map(serializeNode),
       edges: edges.map(serializeEdge),
     },
     null,
@@ -1102,6 +1135,9 @@ function WorkflowBuilderContent({ onNavigate }) {
       {activeModal === 'preview' ? (
         <Modal title="Workflow JSON Preview" onClose={() => setActiveModal(null)}>
           <PreviewSummary summary={workflowSummary} />
+          <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-800">
+            Preview only. This workflow does not execute automation or send emails.
+          </div>
           <pre className="mt-4 max-h-[56vh] overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-5 text-slate-100">
             {previewJson}
           </pre>
@@ -1113,6 +1149,7 @@ function WorkflowBuilderContent({ onNavigate }) {
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-800">
             Mock test only. No backend automation ran and no emails were sent.
           </div>
+          <BlockMappingSummary nodes={nodes} />
           <div className="mt-4">
             <ValidationResult result={validationResult} compact />
           </div>
@@ -1274,12 +1311,35 @@ function DraftMeta({ label, value }) {
     </div>
   )
 }
+function BlockMappingSummary({ nodes }) {
+  const summary = getBlockMappingSummary(nodes)
+  const cards = [
+    { label: 'Triggers', value: summary.triggers },
+    { label: 'Actions', value: summary.actions },
+    { label: 'Waits', value: summary.waits },
+    { label: 'Conditions', value: summary.conditions },
+    { label: 'Mapped blocks', value: summary.mappedBlocks },
+    { label: 'Unmapped blocks', value: summary.unmappedBlocks },
+  ]
+
+  return (
+    <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+      <p className="text-sm font-semibold text-slate-950">Block mapping summary</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {cards.map((card) => (
+          <InfoPill key={card.label} label={card.label} value={card.value} />
+        ))}
+      </div>
+    </div>
+  )
+}
 function PreviewSummary({ summary }) {
   return (
-    <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-5">
       <InfoPill label="Nodes" value={summary.nodes} />
       <InfoPill label="Edges" value={summary.edges} />
       <InfoPill label="Mode" value="visual-only" />
+      <InfoPill label="Execution" value="disabled" />
       <InfoPill label="Safety" value="no backend call, no emails sent" />
     </div>
   )
@@ -1715,6 +1775,7 @@ function createFlowNode(kind, category, label, description, icon, position, sett
       label,
       description,
       icon,
+      ...getBlockMapping(label, kind),
       settings: {
         ...defaultSettingsForKind(kind, label),
         ...settings,
@@ -1749,7 +1810,7 @@ function createWorkflowDraftPayload({ workflowName, nodes, edges, summary, valid
     name: String(workflowName || defaultWorkflowName).trim() || defaultWorkflowName,
     status: 'draft',
     mode: 'visual-only',
-    nodes,
+    nodes: normalizeSavedNodes(nodes),
     edges,
     summary,
     validationStatus,
@@ -1863,6 +1924,15 @@ function validateWorkflow(nodes, edges) {
     const incomingEdges = edges.filter((edge) => edge.target === node.id)
     const outgoingEdges = edges.filter((edge) => edge.source === node.id)
 
+    const mappingIssues = getNodeMappingIssues(node)
+    if (mappingIssues.length) {
+      issues.push({
+        id: 'mapping-' + node.id,
+        status: 'Warning',
+        title: (node.data?.label || 'Node') + ' is missing visual mapping metadata',
+        message: 'Missing: ' + mappingIssues.join(', ') + '. Old drafts are normalized automatically when loaded; unknown custom blocks should be mapped before backend execution exists.',
+      })
+    }
     if (node.data?.kind !== 'trigger' && !incomingEdges.length) {
       issues.push({
         id: `missing-incoming-${node.id}`,
@@ -1950,6 +2020,83 @@ function nextNodePosition(nodeCount) {
   }
 }
 
+function getBlockMapping(label, kind = 'action') {
+  const mapping = blockMappingByLabel[label]
+
+  if (mapping) {
+    return {
+      ...mapping,
+      safety: visualOnlySafety,
+      executionEnabled: false,
+    }
+  }
+
+  return {
+    typeKey: kind ? kind + '.unknown' : 'unknown.block',
+    module: 'unknown',
+    operation: 'unknown',
+    safety: visualOnlySafety,
+    executionEnabled: false,
+  }
+}
+
+function normalizeNodeData(data = {}) {
+  const kind = data.kind || data.type || 'action'
+  const label = data.label || 'Workflow Block'
+  const mapping = getBlockMapping(label, kind)
+
+  return {
+    ...data,
+    kind,
+    category: data.category || categoryForKind(kind),
+    label,
+    description: data.description || 'Visual workflow block.',
+    icon: data.icon || 'Workflow',
+    typeKey: data.typeKey || mapping.typeKey,
+    module: data.module || mapping.module,
+    operation: data.operation || mapping.operation,
+    safety: data.safety || visualOnlySafety,
+    executionEnabled: false,
+    settings: data.settings || {},
+  }
+}
+
+function categoryForKind(kind) {
+  if (kind === 'trigger') return 'Trigger'
+  if (kind === 'wait') return 'Wait'
+  if (kind === 'condition') return 'Condition'
+  return 'Action'
+}
+
+function getNodeMappingIssues(node) {
+  const issues = []
+  const data = node.data || {}
+
+  if (!data.typeKey) issues.push('typeKey')
+  if (!data.module) issues.push('module')
+  if (!data.operation) issues.push('operation')
+  if (data.typeKey?.includes('.unknown') || data.module === 'unknown' || data.operation === 'unknown') {
+    issues.push('known mapping')
+  }
+  if (data.safety !== visualOnlySafety) issues.push('safety')
+  if (data.executionEnabled !== false) issues.push('executionEnabled false')
+
+  return issues
+}
+
+function getBlockMappingSummary(nodes) {
+  const summary = getWorkflowSummary(nodes, [])
+  const mappedBlocks = nodes.filter((node) => !getNodeMappingIssues(node).length).length
+
+  return {
+    triggers: summary.triggers,
+    actions: summary.actions,
+    waits: summary.waits,
+    conditions: summary.conditions,
+    mappedBlocks,
+    unmappedBlocks: nodes.length - mappedBlocks,
+  }
+}
 function normalizeSavedNodes(savedNodes) {
   if (!Array.isArray(savedNodes)) return []
 
@@ -1959,14 +2106,7 @@ function normalizeSavedNodes(savedNodes) {
       ...node,
       type: nodeType,
       position: node.position || { x: 100, y: 100 },
-      data: {
-        kind: node.data.kind || node.data.type || 'action',
-        category: node.data.category || 'Action',
-        label: node.data.label || 'Workflow Block',
-        description: node.data.description || 'Visual workflow block.',
-        icon: node.data.icon || 'Workflow',
-        settings: node.data.settings || {},
-      },
+      data: normalizeNodeData(node.data),
     }))
 }
 
@@ -2079,6 +2219,11 @@ function serializeNode(node) {
     category: node.data.category,
     label: node.data.label,
     description: node.data.description,
+    typeKey: node.data.typeKey || '',
+    module: node.data.module || '',
+    operation: node.data.operation || '',
+    safety: node.data.safety || visualOnlySafety,
+    executionEnabled: node.data.executionEnabled === true ? true : false,
     position: node.position,
     settings: node.data.settings,
   }
