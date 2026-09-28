@@ -51,6 +51,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import { createWorkflowDraft, getWorkflowDrafts, updateWorkflowDraft } from '@/services/api'
 
 const draftStorageKey = 'leadrubyorbit.workflowBuilderDraft'
 const nodeType = 'workflowBlock'
@@ -258,6 +259,7 @@ export function WorkflowBuilderPage({ onNavigate }) {
 function WorkflowBuilderContent({ onNavigate }) {
   const canvasRef = useRef(null)
   const [workflowName, setWorkflowName] = useState(defaultWorkflowName)
+  const [workflowDraftId, setWorkflowDraftId] = useState('')
   const [nodes, setNodes] = useState(() => createSampleNodes())
   const [edges, setEdges] = useState(() => createSampleEdges())
   const [selectedNodeId, setSelectedNodeId] = useState('sample-trigger')
@@ -287,30 +289,67 @@ function WorkflowBuilderContent({ onNavigate }) {
   const hasMultipleTriggers = workflowSummary.triggers > 1
 
   useEffect(() => {
-    const savedDraft = window.localStorage.getItem(draftStorageKey)
+    let isMounted = true
 
-    if (!savedDraft) return
+    function applyDraft(draft, messageText) {
+      if (!isMounted) return
 
-    try {
-      const parsedDraft = JSON.parse(savedDraft)
-      const hasSavedNodes = Array.isArray(parsedDraft.nodes)
-      const hasSavedEdges = Array.isArray(parsedDraft.edges)
-      const draftNodes = hasSavedNodes ? normalizeSavedNodes(parsedDraft.nodes) : createSampleNodes()
-      const draftEdges = hasSavedEdges ? normalizeSavedEdges(parsedDraft.edges) : createSampleEdges()
-      const draftSelectedNodeId = draftNodes.some((node) => node.id === parsedDraft.selectedNodeId)
-        ? parsedDraft.selectedNodeId
-        : draftNodes[0]?.id || ''
-
-      setWorkflowName(parsedDraft.workflowName || defaultWorkflowName)
+      const draftNodes = Array.isArray(draft.nodes) ? normalizeSavedNodes(draft.nodes) : createSampleNodes()
+      const draftEdges = Array.isArray(draft.edges) ? normalizeSavedEdges(draft.edges) : createSampleEdges()
+      setWorkflowDraftId(draft.id || draft.workflowDraftId || '')
+      setWorkflowName(draft.name || draft.workflowName || defaultWorkflowName)
       setNodes(draftNodes)
       setEdges(applyConditionEdgeLabels(draftNodes, draftEdges))
-      setSelectedNodeId(draftSelectedNodeId)
+      setSelectedNodeId('')
       setSelectedEdgeId('')
-      setIsSettingsDrawerOpen(Boolean(draftSelectedNodeId))
+      setIsSettingsDrawerOpen(false)
       setIsDirty(false)
-      setMessage('Loaded saved workflow draft from this browser.')
-    } catch {
-      setMessage('Saved workflow draft could not be loaded, so the sample workflow is shown.')
+      setMessage(messageText)
+    }
+
+    function loadLocalDraft(messageText = 'Loaded saved workflow draft from this browser.') {
+      const savedDraft = window.localStorage.getItem(draftStorageKey)
+
+      if (!savedDraft) return false
+
+      try {
+        applyDraft(JSON.parse(savedDraft), messageText)
+        return true
+      } catch {
+        if (isMounted) {
+          setMessage('Saved workflow draft could not be loaded, so the sample workflow is shown.')
+        }
+        return false
+      }
+    }
+
+    async function loadDraft() {
+      try {
+        const workflowDrafts = await getWorkflowDrafts()
+        const latestDraft = Array.isArray(workflowDrafts) ? workflowDrafts[0] : null
+
+        if (latestDraft) {
+          applyDraft(latestDraft, 'Loaded saved workflow draft from workspace.')
+          return
+        }
+      } catch {
+        if (loadLocalDraft('Backend load failed, loaded local browser draft.')) {
+          return
+        }
+
+        if (isMounted) {
+          setMessage('Backend load failed, sample workflow is shown.')
+        }
+        return
+      }
+
+      loadLocalDraft()
+    }
+
+    loadDraft()
+
+    return () => {
+      isMounted = false
     }
   }, [])
 
@@ -472,21 +511,48 @@ function WorkflowBuilderContent({ onNavigate }) {
     window.requestAnimationFrame(() => flowInstance?.fitView({ padding: 0.2 }))
   }
 
-  function handleSaveDraft() {
+  async function handleSaveDraft() {
     const nextEdges = applyConditionEdgeLabels(nodes, edges)
     const nextValidationResult = validateWorkflow(nodes, nextEdges)
+    const payload = createWorkflowDraftPayload({
+      workflowName,
+      nodes,
+      edges: nextEdges,
+      summary: workflowSummary,
+      validationStatus: nextValidationResult.status,
+    })
 
     setEdges(nextEdges)
-    window.localStorage.setItem(
-      draftStorageKey,
-      JSON.stringify({ workflowName, nodes, edges: nextEdges, selectedNodeId, selectedEdgeId, savedAt: new Date().toISOString() }, null, 2),
-    )
-    setIsDirty(false)
-    setMessage(
-      nextValidationResult.issues.length
-        ? 'Workflow saved locally with validation warnings.'
-        : 'Workflow draft saved locally.',
-    )
+
+    try {
+      const savedDraft = workflowDraftId
+        ? await updateWorkflowDraft(workflowDraftId, payload)
+        : await createWorkflowDraft(payload)
+      const nextWorkflowDraftId = savedDraft.id || workflowDraftId
+
+      setWorkflowDraftId(nextWorkflowDraftId)
+      writeLocalDraft({
+        ...payload,
+        id: nextWorkflowDraftId,
+        workflowDraftId: nextWorkflowDraftId,
+        workflowName: payload.name,
+        selectedNodeId,
+        selectedEdgeId,
+      })
+      setIsDirty(false)
+      setMessage('Workflow draft saved to workspace.')
+    } catch {
+      writeLocalDraft({
+        ...payload,
+        id: workflowDraftId,
+        workflowDraftId,
+        workflowName: payload.name,
+        selectedNodeId,
+        selectedEdgeId,
+      })
+      setIsDirty(false)
+      setMessage('Backend save failed, saved locally in this browser.')
+    }
   }
 
   function handlePreview() {
@@ -1360,6 +1426,25 @@ function createEdge(source, target, label) {
     target,
     type: 'smoothstep',
   }
+}
+
+function createWorkflowDraftPayload({ workflowName, nodes, edges, summary, validationStatus }) {
+  return {
+    name: String(workflowName || defaultWorkflowName).trim() || defaultWorkflowName,
+    status: 'draft',
+    mode: 'visual-only',
+    nodes,
+    edges,
+    summary,
+    validationStatus,
+  }
+}
+
+function writeLocalDraft(draft) {
+  window.localStorage.setItem(
+    draftStorageKey,
+    JSON.stringify({ ...draft, savedAt: new Date().toISOString() }, null, 2),
+  )
 }
 
 

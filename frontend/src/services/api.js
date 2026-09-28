@@ -638,6 +638,55 @@ export async function getWorkflowSettings() {
   return payload.data
 }
 
+export async function getWorkflowDrafts() {
+  const response = await fetch(API_BASE_URL + '/api/workflows')
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function getWorkflowDraft(workflowDraftId) {
+  const response = await fetch(API_BASE_URL + '/api/workflows/' + workflowDraftId)
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function createWorkflowDraft(workflowDraft) {
+  const response = await fetch(API_BASE_URL + '/api/workflows', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(workflowDraft),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function updateWorkflowDraft(workflowDraftId, workflowDraft) {
+  const response = await fetch(API_BASE_URL + '/api/workflows/' + workflowDraftId, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(workflowDraft),
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function deleteWorkflowDraft(workflowDraftId) {
+  const response = await fetch(API_BASE_URL + '/api/workflows/' + workflowDraftId, {
+    method: 'DELETE',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
 export async function getTeamMembers() {
   const response = await fetch(`${API_BASE_URL}/api/team-members`)
 
