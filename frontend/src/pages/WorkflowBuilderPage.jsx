@@ -309,6 +309,7 @@ function WorkflowBuilderContent({ onNavigate }) {
   const [isDraftsLoading, setIsDraftsLoading] = useState(false)
   const [draftsError, setDraftsError] = useState('')
   const [draftActionId, setDraftActionId] = useState('')
+  const [schemaCopyMessage, setSchemaCopyMessage] = useState('')
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || null,
@@ -324,6 +325,19 @@ function WorkflowBuilderContent({ onNavigate }) {
   )
   const workflowSummary = useMemo(() => getWorkflowSummary(nodes, edges), [nodes, edges])
   const validationResult = useMemo(() => validateWorkflow(nodes, edges), [nodes, edges])
+  const compatibilityResult = useMemo(() => checkWorkflowCompatibility(nodes, edges), [nodes, edges])
+  const workflowSchema = useMemo(
+    () =>
+      createWorkflowSchema({
+        workflowName,
+        nodes,
+        edges,
+        summary: workflowSummary,
+        validationStatus: validationResult.status,
+        compatibilityResult,
+      }),
+    [compatibilityResult, edges, nodes, validationResult.status, workflowName, workflowSummary],
+  )
   const hasMultipleTriggers = workflowSummary.triggers > 1
 
   const runWithoutDirty = useCallback((callback, { dirty = false } = {}) => {
@@ -739,7 +753,17 @@ function WorkflowBuilderContent({ onNavigate }) {
   }
 
   function handlePreview() {
+    setSchemaCopyMessage('')
     setActiveModal('preview')
+  }
+
+  async function handleCopySchemaJson() {
+    try {
+      await navigator.clipboard.writeText(previewJson)
+      setSchemaCopyMessage('Schema JSON copied.')
+    } catch {
+      setSchemaCopyMessage('Could not copy schema JSON.')
+    }
   }
 
   function handleValidateWorkflow() {
@@ -803,20 +827,7 @@ function WorkflowBuilderContent({ onNavigate }) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selectedEdge, selectedNode])
 
-  const previewJson = JSON.stringify(
-    {
-      workflowName,
-      status: 'Draft',
-      mode: 'visual-only',
-      executionEnabled: false,
-      summary: workflowSummary,
-      validationStatus: validationResult.status,
-      nodes: normalizeSavedNodes(nodes).map(serializeNode),
-      edges: edges.map(serializeEdge),
-    },
-    null,
-    2,
-  )
+  const previewJson = JSON.stringify(workflowSchema, null, 2)
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-slate-100 text-slate-950">
@@ -1129,6 +1140,7 @@ function WorkflowBuilderContent({ onNavigate }) {
       {activeModal === 'validation' ? (
         <Modal title="Workflow Validation" onClose={() => setActiveModal(null)}>
           <ValidationResult result={validationResult} />
+          <CompatibilitySummary result={compatibilityResult} />
         </Modal>
       ) : null}
 
@@ -1138,7 +1150,22 @@ function WorkflowBuilderContent({ onNavigate }) {
           <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-800">
             Preview only. This workflow does not execute automation or send emails.
           </div>
-          <pre className="mt-4 max-h-[56vh] overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-5 text-slate-100">
+          <div className="max-h-72 overflow-y-auto pr-1">
+            <CompatibilitySummary result={compatibilityResult} />
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              className="inline-flex min-h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+              type="button"
+              onClick={handleCopySchemaJson}
+            >
+              Copy Schema JSON
+            </button>
+            {schemaCopyMessage ? (
+              <p className="text-sm font-medium text-slate-600">{schemaCopyMessage}</p>
+            ) : null}
+          </div>
+          <pre className="mt-4 max-h-80 overflow-auto rounded-md bg-slate-950 p-4 text-xs leading-5 text-slate-100">
             {previewJson}
           </pre>
         </Modal>
@@ -1149,7 +1176,7 @@ function WorkflowBuilderContent({ onNavigate }) {
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-800">
             Mock test only. No backend automation ran and no emails were sent.
           </div>
-          <BlockMappingSummary nodes={nodes} />
+          <BlockMappingSummary compatibilityResult={compatibilityResult} nodes={nodes} />
           <div className="mt-4">
             <ValidationResult result={validationResult} compact />
           </div>
@@ -1311,7 +1338,7 @@ function DraftMeta({ label, value }) {
     </div>
   )
 }
-function BlockMappingSummary({ nodes }) {
+function BlockMappingSummary({ compatibilityResult, nodes }) {
   const summary = getBlockMappingSummary(nodes)
   const cards = [
     { label: 'Triggers', value: summary.triggers },
@@ -1324,7 +1351,14 @@ function BlockMappingSummary({ nodes }) {
 
   return (
     <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
-      <p className="text-sm font-semibold text-slate-950">Block mapping summary</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-slate-950">Block mapping summary</p>
+        {compatibilityResult ? (
+          <Badge variant="outline" className={cn('text-[0.68rem]', validationBadgeStyles[compatibilityResult.status])}>
+            Compatibility: {compatibilityResult.status}
+          </Badge>
+        ) : null}
+      </div>
       <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((card) => (
           <InfoPill key={card.label} label={card.label} value={card.value} />
@@ -1341,6 +1375,42 @@ function PreviewSummary({ summary }) {
       <InfoPill label="Mode" value="visual-only" />
       <InfoPill label="Execution" value="disabled" />
       <InfoPill label="Safety" value="no backend call, no emails sent" />
+    </div>
+  )
+}
+
+function CompatibilitySummary({ result }) {
+  const counts = getCompatibilityCheckCounts(result)
+
+  return (
+    <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-slate-950">Backend Compatibility Check</p>
+          <p className="mt-1 text-xs text-slate-600">Informational only. No backend execution APIs are called.</p>
+        </div>
+        <Badge variant="outline" className={cn('text-[0.68rem]', validationBadgeStyles[result.status])}>
+          {result.status}
+        </Badge>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <InfoPill label="Passed checks" value={counts.Passed} />
+        <InfoPill label="Warning checks" value={counts.Warning} />
+        <InfoPill label="Error checks" value={counts.Error} />
+      </div>
+      <div className="mt-3 grid gap-2">
+        {result.checks.map((check) => (
+          <div className={cn('rounded-md border px-3 py-2', validationStatusStyles[check.status])} key={check.id}>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className={cn('text-[0.68rem]', validationBadgeStyles[check.status])}>
+                {check.status}
+              </Badge>
+              <p className="text-sm font-semibold">{check.title}</p>
+            </div>
+            <p className="mt-1 text-sm leading-6">{check.message}</p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -1744,13 +1814,24 @@ function TextInputField({ label, onChange, placeholder = '', value }) {
 }
 
 function Modal({ children, onClose, title }) {
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
-      <div className="w-full max-w-3xl rounded-lg border border-slate-200 bg-white shadow-xl">
-        <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-4">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+        <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
           <h2 className="text-base font-semibold text-slate-950">{title}</h2>
           <button
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50"
             type="button"
             onClick={onClose}
           >
@@ -1758,7 +1839,7 @@ function Modal({ children, onClose, title }) {
             <span className="sr-only">Close</span>
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
       </div>
     </div>
   )
@@ -2097,6 +2178,165 @@ function getBlockMappingSummary(nodes) {
     unmappedBlocks: nodes.length - mappedBlocks,
   }
 }
+
+function createWorkflowSchema({ compatibilityResult, edges, nodes, summary, validationStatus, workflowName }) {
+  const normalizedNodes = normalizeSavedNodes(nodes)
+  const normalizedEdges = normalizeSavedEdges(edges).map(serializeEdge)
+
+  return {
+    schemaVersion: 'visual-workflow-v1',
+    workflowName: String(workflowName || defaultWorkflowName).trim() || defaultWorkflowName,
+    status: 'Draft',
+    mode: 'visual-only',
+    executionEnabled: false,
+    safety: visualOnlySafety,
+    summary,
+    validationStatus,
+    compatibilityStatus: compatibilityResult.status,
+    nodes: normalizedNodes.map(serializeSchemaNode),
+    edges: normalizedEdges,
+    compatibilityReport: compatibilityResult,
+  }
+}
+
+function checkWorkflowCompatibility(nodes, edges) {
+  const normalizedNodes = normalizeSavedNodes(nodes)
+  const normalizedEdges = normalizeSavedEdges(edges)
+  const nodeIds = new Set(normalizedNodes.map((node) => node.id))
+  const triggerCount = normalizedNodes.filter((node) => node.data?.kind === 'trigger').length
+  const actionCount = normalizedNodes.filter((node) => node.data?.kind === 'action').length
+  const checks = []
+
+  const missingTypeKeyNodes = normalizedNodes.filter((node) => !node.data?.typeKey || node.data.typeKey.includes('.unknown'))
+  checks.push(createCompatibilityCheck(
+    'stable-type-keys',
+    missingTypeKeyNodes.length ? 'Warning' : 'Passed',
+    'Stable type keys',
+    missingTypeKeyNodes.length
+      ? `${missingTypeKeyNodes.length} block(s) need stable typeKey metadata before backend mapping.`
+      : 'Every block has a stable visual typeKey.',
+  ))
+
+  const unknownModuleNodes = normalizedNodes.filter((node) => !node.data?.module || node.data.module === 'unknown')
+  checks.push(createCompatibilityCheck(
+    'known-modules',
+    unknownModuleNodes.length ? 'Warning' : 'Passed',
+    'Known backend modules',
+    unknownModuleNodes.length
+      ? `${unknownModuleNodes.length} block(s) are not mapped to a known backend module yet.`
+      : 'Every block maps to a known backend module name.',
+  ))
+
+  const unknownOperationNodes = normalizedNodes.filter((node) => !node.data?.operation || node.data.operation === 'unknown')
+  checks.push(createCompatibilityCheck(
+    'known-operations',
+    unknownOperationNodes.length ? 'Warning' : 'Passed',
+    'Known backend operations',
+    unknownOperationNodes.length
+      ? `${unknownOperationNodes.length} block(s) are not mapped to a known backend operation yet.`
+      : 'Every block maps to a known backend operation name.',
+  ))
+
+  const unsafeExecutionNodes = normalizedNodes.filter((node) => node.data?.executionEnabled !== false)
+  checks.push(createCompatibilityCheck(
+    'execution-flags-disabled',
+    unsafeExecutionNodes.length ? 'Error' : 'Passed',
+    'Execution disabled per node',
+    unsafeExecutionNodes.length
+      ? `${unsafeExecutionNodes.length} block(s) are not explicitly marked executionEnabled: false.`
+      : 'Every block is explicitly marked executionEnabled: false.',
+  ))
+
+  const unsafeSafetyNodes = normalizedNodes.filter((node) => node.data?.safety !== visualOnlySafety)
+  checks.push(createCompatibilityCheck(
+    'visual-only-safety',
+    unsafeSafetyNodes.length ? 'Error' : 'Passed',
+    'Visual-only safety',
+    unsafeSafetyNodes.length
+      ? `${unsafeSafetyNodes.length} block(s) are missing safety: visual-only.`
+      : 'Every block is marked safety: visual-only.',
+  ))
+
+  const brokenEdges = normalizedEdges.filter((edge) => !nodeIds.has(edge.source) || !nodeIds.has(edge.target))
+  checks.push(createCompatibilityCheck(
+    'edge-node-references',
+    brokenEdges.length ? 'Error' : 'Passed',
+    'Edge node references',
+    brokenEdges.length
+      ? `${brokenEdges.length} connection(s) reference a missing source or target node.`
+      : 'Every connection references nodes in this workflow schema.',
+  ))
+
+  checks.push(createCompatibilityCheck(
+    'single-trigger-recommended',
+    triggerCount === 1 ? 'Passed' : 'Warning',
+    'One starting trigger recommended',
+    triggerCount === 1
+      ? 'This workflow has one starting trigger.'
+      : `This workflow has ${triggerCount} trigger(s). Exactly one starting trigger is recommended for this MVP.`,
+  ))
+
+  checks.push(createCompatibilityCheck(
+    'at-least-one-action-recommended',
+    actionCount > 0 ? 'Passed' : 'Warning',
+    'At least one action recommended',
+    actionCount > 0
+      ? 'This workflow includes at least one action block.'
+      : 'Add at least one action block before mapping this draft to backend behavior later.',
+  ))
+
+  const conditionLabelIssues = normalizedNodes.filter((node) => {
+    if (node.data?.kind !== 'condition') return false
+
+    const labels = normalizedEdges
+      .filter((edge) => edge.source === node.id)
+      .map((edge) => String(edge.label || '').trim().toLowerCase())
+
+    if (labels.length < 2) return false
+
+    return !labels.includes('yes') || !labels.includes('no')
+  })
+  checks.push(createCompatibilityCheck(
+    'condition-branch-labels',
+    conditionLabelIssues.length ? 'Warning' : 'Passed',
+    'Condition branch labels',
+    conditionLabelIssues.length
+      ? `${conditionLabelIssues.length} condition node(s) with multiple outgoing paths should have Yes and No labels.`
+      : 'Condition branch labels are compatible where multiple paths exist.',
+  ))
+
+  checks.push(createCompatibilityCheck(
+    'no-execution-enabled-nodes',
+    unsafeExecutionNodes.length ? 'Error' : 'Passed',
+    'No executable nodes',
+    unsafeExecutionNodes.length
+      ? 'This schema contains an execution-enabled block and must remain visual-only.'
+      : 'The workflow schema contains no execution-enabled blocks.',
+  ))
+
+  return {
+    status: getCompatibilityStatus(checks),
+    checks,
+  }
+}
+
+function createCompatibilityCheck(id, status, title, message) {
+  return { id, status, title, message }
+}
+
+function getCompatibilityStatus(checks) {
+  if (checks.some((check) => check.status === 'Error')) return 'Error'
+  if (checks.some((check) => check.status === 'Warning')) return 'Warning'
+  return 'Passed'
+}
+
+function getCompatibilityCheckCounts(result) {
+  return {
+    Passed: result.checks.filter((check) => check.status === 'Passed').length,
+    Warning: result.checks.filter((check) => check.status === 'Warning').length,
+    Error: result.checks.filter((check) => check.status === 'Error').length,
+  }
+}
 function normalizeSavedNodes(savedNodes) {
   if (!Array.isArray(savedNodes)) return []
 
@@ -2212,20 +2452,18 @@ function defaultSettingsForKind(kind, label) {
   return {}
 }
 
-function serializeNode(node) {
+function serializeSchemaNode(node) {
   return {
     id: node.id,
     type: node.data.kind,
     category: node.data.category,
     label: node.data.label,
-    description: node.data.description,
     typeKey: node.data.typeKey || '',
     module: node.data.module || '',
     operation: node.data.operation || '',
     safety: node.data.safety || visualOnlySafety,
     executionEnabled: node.data.executionEnabled === true ? true : false,
-    position: node.position,
-    settings: node.data.settings,
+    settings: node.data.settings || {},
   }
 }
 
