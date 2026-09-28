@@ -317,8 +317,11 @@ function WorkflowBuilderContent({ onNavigate }) {
   const [draftActionId, setDraftActionId] = useState('')
   const [schemaCopyMessage, setSchemaCopyMessage] = useState('')
   const [backendCompatibilityResult, setBackendCompatibilityResult] = useState(null)
+  const [backendCompatibilityCheckedAt, setBackendCompatibilityCheckedAt] = useState('')
+  const [backendCompatibilitySchemaJson, setBackendCompatibilitySchemaJson] = useState('')
   const [backendCompatibilityError, setBackendCompatibilityError] = useState('')
   const [isBackendCompatibilityLoading, setIsBackendCompatibilityLoading] = useState(false)
+  const [savedDraftSummary, setSavedDraftSummary] = useState(null)
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || null,
@@ -383,6 +386,11 @@ function WorkflowBuilderContent({ onNavigate }) {
       setSelectedNodeId('')
       setSelectedEdgeId('')
       setIsSettingsDrawerOpen(false)
+      setBackendCompatibilityResult(null)
+      setBackendCompatibilityCheckedAt('')
+      setBackendCompatibilitySchemaJson('')
+      setBackendCompatibilityError('')
+      setSavedDraftSummary(draft.summary || null)
       setMessage(messageText)
     }, { dirty })
   }, [runWithoutDirty])
@@ -512,7 +520,12 @@ function WorkflowBuilderContent({ onNavigate }) {
         workflowName: draft.name,
         nodes: draft.nodes || [],
         edges: draft.edges || [],
-        summary: draft.summary || {},
+        summary: draft.summary || createWorkflowSummarySnapshot({
+          backendCompatibilityCheckedAt: '',
+          backendCompatibilityResult: null,
+          localCompatibilityStatus: checkWorkflowCompatibility(draft.nodes || [], draft.edges || []).status,
+          summary: getWorkflowSummary(draft.nodes || [], draft.edges || []),
+        }),
         validationStatus: draft.validationStatus || 'Warning',
       }),
       id: draft.id,
@@ -534,6 +547,11 @@ function WorkflowBuilderContent({ onNavigate }) {
       setSelectedEdgeId('')
       setIsSettingsDrawerOpen(false)
       setActiveModal(null)
+      setBackendCompatibilityResult(null)
+      setBackendCompatibilityCheckedAt('')
+      setBackendCompatibilitySchemaJson('')
+      setBackendCompatibilityError('')
+      setSavedDraftSummary(null)
       setMessage('New workflow draft started locally.')
     }, { dirty: true })
     window.requestAnimationFrame(() => flowInstance?.fitView({ padding: 0.2 }))
@@ -543,11 +561,18 @@ function WorkflowBuilderContent({ onNavigate }) {
     setDraftActionId(draft.id)
 
     try {
+      const copiedNodes = draft.nodes || []
+      const copiedEdges = draft.edges || []
       const copiedDraft = await createWorkflowDraft(createWorkflowDraftPayload({
         workflowName: (draft.name || defaultWorkflowName) + ' Copy',
-        nodes: draft.nodes || [],
-        edges: draft.edges || [],
-        summary: draft.summary || getWorkflowSummary(draft.nodes || [], draft.edges || []),
+        nodes: copiedNodes,
+        edges: copiedEdges,
+        summary: createWorkflowSummarySnapshot({
+          backendCompatibilityCheckedAt: '',
+          backendCompatibilityResult: null,
+          localCompatibilityStatus: checkWorkflowCompatibility(copiedNodes, copiedEdges).status,
+          summary: getWorkflowSummary(copiedNodes, copiedEdges),
+        }),
         validationStatus: draft.validationStatus || 'Warning',
       }))
 
@@ -558,7 +583,12 @@ function WorkflowBuilderContent({ onNavigate }) {
           workflowName: copiedDraft.name,
           nodes: copiedDraft.nodes || [],
           edges: copiedDraft.edges || [],
-          summary: copiedDraft.summary || {},
+          summary: copiedDraft.summary || createWorkflowSummarySnapshot({
+            backendCompatibilityCheckedAt: '',
+            backendCompatibilityResult: null,
+            localCompatibilityStatus: checkWorkflowCompatibility(copiedDraft.nodes || [], copiedDraft.edges || []).status,
+            summary: getWorkflowSummary(copiedDraft.nodes || [], copiedDraft.edges || []),
+          }),
           validationStatus: copiedDraft.validationStatus || 'Warning',
         }),
         id: copiedDraft.id,
@@ -697,6 +727,7 @@ function WorkflowBuilderContent({ onNavigate }) {
       setSelectedNodeId('')
       setSelectedEdgeId('')
       setIsSettingsDrawerOpen(false)
+      setSavedDraftSummary(null)
       setMessage('Canvas cleared. Save draft to keep this blank workflow.')
     }, { dirty: true })
   }
@@ -710,6 +741,7 @@ function WorkflowBuilderContent({ onNavigate }) {
       setSelectedNodeId('')
       setSelectedEdgeId('')
       setIsSettingsDrawerOpen(false)
+      setSavedDraftSummary(null)
       setMessage('Sample workflow restored locally.')
     }, { dirty: true })
     window.requestAnimationFrame(() => flowInstance?.fitView({ padding: 0.2 }))
@@ -718,11 +750,19 @@ function WorkflowBuilderContent({ onNavigate }) {
   async function handleSaveDraft() {
     const nextEdges = applyConditionEdgeLabels(nodes, edges)
     const nextValidationResult = validateWorkflow(nodes, nextEdges)
+    const nextSummary = getWorkflowSummary(nodes, nextEdges)
+    const nextLocalCompatibilityResult = checkWorkflowCompatibility(nodes, nextEdges)
+    const nextSummarySnapshot = createWorkflowSummarySnapshot({
+      backendCompatibilityCheckedAt,
+      backendCompatibilityResult: backendCompatibilitySchemaJson === previewJson ? backendCompatibilityResult : null,
+      localCompatibilityStatus: nextLocalCompatibilityResult.status,
+      summary: nextSummary,
+    })
     const payload = createWorkflowDraftPayload({
       workflowName,
       nodes,
       edges: nextEdges,
-      summary: workflowSummary,
+      summary: nextSummarySnapshot,
       validationStatus: nextValidationResult.status,
     })
 
@@ -745,6 +785,7 @@ function WorkflowBuilderContent({ onNavigate }) {
         selectedNodeId,
         selectedEdgeId,
       })
+      setSavedDraftSummary(payload.summary)
       setIsDirty(false)
       setMessage('Workflow draft saved to workspace.')
     } catch {
@@ -756,6 +797,7 @@ function WorkflowBuilderContent({ onNavigate }) {
         selectedNodeId,
         selectedEdgeId,
       })
+      setSavedDraftSummary(payload.summary)
       setIsDirty(false)
       setMessage('Backend save failed, saved locally in this browser.')
     }
@@ -771,7 +813,10 @@ function WorkflowBuilderContent({ onNavigate }) {
     setBackendCompatibilityError('')
 
     try {
-      setBackendCompatibilityResult(await validateWorkflowSchema(workflowSchema))
+      const backendResult = await validateWorkflowSchema(workflowSchema)
+      setBackendCompatibilityResult(backendResult)
+      setBackendCompatibilityCheckedAt(new Date().toISOString())
+      setBackendCompatibilitySchemaJson(previewJson)
     } catch (error) {
       setBackendCompatibilityError(error.message || 'Could not validate workflow schema with backend.')
     } finally {
@@ -851,11 +896,20 @@ function WorkflowBuilderContent({ onNavigate }) {
   }, [selectedEdge, selectedNode])
 
   const previewJson = JSON.stringify(workflowSchema, null, 2)
+  const currentBackendCompatibilityResult = backendCompatibilitySchemaJson === previewJson
+    ? backendCompatibilityResult
+    : null
+  const savedBackendCompatibilityStatus = !isDirty ? savedDraftSummary?.backendCompatibilityStatus : ''
+  const savedBackendValidatedAt = !isDirty ? savedDraftSummary?.backendValidatedAt : ''
 
   useEffect(() => {
+    if (!backendCompatibilitySchemaJson || backendCompatibilitySchemaJson === previewJson) return
+
     setBackendCompatibilityResult(null)
+    setBackendCompatibilityCheckedAt('')
+    setBackendCompatibilitySchemaJson('')
     setBackendCompatibilityError('')
-  }, [workflowSchema])
+  }, [backendCompatibilitySchemaJson, previewJson])
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-slate-100 text-slate-950">
@@ -1173,7 +1227,9 @@ function WorkflowBuilderContent({ onNavigate }) {
             error={backendCompatibilityError}
             isLoading={isBackendCompatibilityLoading}
             onCheck={handleBackendCompatibilityCheck}
-            result={backendCompatibilityResult}
+            result={currentBackendCompatibilityResult}
+            savedStatus={savedBackendCompatibilityStatus}
+            savedValidatedAt={savedBackendValidatedAt}
           />
         </Modal>
       ) : null}
@@ -1191,7 +1247,9 @@ function WorkflowBuilderContent({ onNavigate }) {
             error={backendCompatibilityError}
             isLoading={isBackendCompatibilityLoading}
             onCheck={handleBackendCompatibilityCheck}
-            result={backendCompatibilityResult}
+            result={currentBackendCompatibilityResult}
+            savedStatus={savedBackendCompatibilityStatus}
+            savedValidatedAt={savedBackendValidatedAt}
           />
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <button
@@ -1318,9 +1376,9 @@ function DraftManager({ actionDraftId, currentDraftId, drafts, error, isLoading,
 
       {!isLoading && drafts.length ? (
         <div className="max-h-[56vh] overflow-auto rounded-md border border-slate-200">
-          <div className="min-w-[760px] divide-y divide-slate-200">
+          <div className="min-w-[900px] divide-y divide-slate-200">
             {drafts.map((draft) => (
-              <div className="grid gap-3 bg-white p-4 transition hover:bg-slate-50 lg:grid-cols-[minmax(14rem,1.4fr)_0.7fr_0.7fr_0.8fr_0.8fr_auto]" key={draft.id}>
+              <div className="grid gap-3 bg-white p-4 transition hover:bg-slate-50 lg:grid-cols-[minmax(13rem,1.4fr)_0.55fr_0.65fr_0.85fr_0.85fr_0.75fr_auto]" key={draft.id}>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="truncate text-sm font-semibold text-slate-950">{draft.name || 'Untitled Workflow'}</p>
@@ -1335,6 +1393,8 @@ function DraftManager({ actionDraftId, currentDraftId, drafts, error, isLoading,
                 <DraftMeta label="Status" value={draft.status || 'draft'} />
                 <DraftMeta label="Mode" value={draft.mode || 'visual-only'} />
                 <DraftMeta label="Validation" value={draft.validationStatus || 'Warning'} />
+                <DraftMeta label="Local compat" value={getDraftLocalCompatibilityStatus(draft)} />
+                <DraftMeta label="Backend compat" value={getDraftBackendCompatibilityStatus(draft)} />
                 <DraftMeta label="Size" value={`${getDraftNodeCount(draft)} nodes / ${getDraftEdgeCount(draft)} edges`} />
                 <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
                   <button
@@ -1459,7 +1519,7 @@ function CompatibilitySummary({
   )
 }
 
-function BackendSchemaCheck({ error, isLoading, onCheck, result }) {
+function BackendSchemaCheck({ error, isLoading, onCheck, result, savedStatus, savedValidatedAt }) {
   return (
     <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 p-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1484,6 +1544,11 @@ function BackendSchemaCheck({ error, isLoading, onCheck, result }) {
           {error}
         </p>
       ) : null}
+      {!result && savedStatus ? (
+        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+          Saved backend status: {savedStatus} from last save{savedValidatedAt ? ` (${formatDraftDate(savedValidatedAt)})` : ''}. Run Check with Backend to refresh.
+        </p>
+      ) : null}
       {result ? (
         <CompatibilitySummary
           description="Server-side compatibility validation only. No automation was executed."
@@ -1503,6 +1568,14 @@ function getDraftNodeCount(draft) {
 function getDraftEdgeCount(draft) {
   if (Array.isArray(draft.edges)) return draft.edges.length
   return Number(draft.summary?.edges || 0)
+}
+
+function getDraftLocalCompatibilityStatus(draft) {
+  return draft.summary?.localCompatibilityStatus || draft.summary?.compatibilityStatus || 'Not checked'
+}
+
+function getDraftBackendCompatibilityStatus(draft) {
+  return draft.summary?.backendCompatibilityStatus || 'Not checked'
 }
 
 function formatDraftDate(value) {
@@ -1963,6 +2036,43 @@ function createEdge(source, target, label) {
     source,
     target,
     type: 'smoothstep',
+  }
+}
+
+function createWorkflowSummarySnapshot({ backendCompatibilityCheckedAt, backendCompatibilityResult, localCompatibilityStatus, summary }) {
+  const snapshot = {
+    nodes: Number(summary?.nodes || 0),
+    edges: Number(summary?.edges || 0),
+    triggers: Number(summary?.triggers || 0),
+    actions: Number(summary?.actions || 0),
+    waits: Number(summary?.waits || 0),
+    conditions: Number(summary?.conditions || 0),
+    schemaVersion: 'visual-workflow-v1',
+    localCompatibilityStatus: localCompatibilityStatus || 'Warning',
+    executionEnabled: false,
+    safety: visualOnlySafety,
+    mode: visualOnlySafety,
+  }
+
+  if (backendCompatibilityResult) {
+    snapshot.backendCompatibilityStatus = backendCompatibilityResult.status || null
+    snapshot.backendValidatedAt = backendCompatibilityCheckedAt || new Date().toISOString()
+    snapshot.backendValidationSummary = pickWorkflowValidationSummary(backendCompatibilityResult.summary)
+  }
+
+  return snapshot
+}
+
+function pickWorkflowValidationSummary(summary = {}) {
+  return {
+    nodes: Number(summary.nodes || 0),
+    edges: Number(summary.edges || 0),
+    triggers: Number(summary.triggers || 0),
+    actions: Number(summary.actions || 0),
+    waits: Number(summary.waits || 0),
+    conditions: Number(summary.conditions || 0),
+    mappedBlocks: Number(summary.mappedBlocks || 0),
+    unmappedBlocks: Number(summary.unmappedBlocks || 0),
   }
 }
 
