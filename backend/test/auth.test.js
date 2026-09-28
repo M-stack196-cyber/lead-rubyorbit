@@ -173,6 +173,39 @@ test('requirePermission rejects a role without permission', async () => {
   assert.equal(error.message, 'You do not have permission to perform this action.')
 })
 
+test('permission denial audit handles request mocks without req.get', async () => {
+  const warnings = []
+  const originalWarn = console.warn
+  console.warn = (...args) => warnings.push(args.join(' '))
+
+  try {
+    const req = {
+      auth: {
+        role: 'viewer',
+      },
+      headers: {
+        'x-request-id': 'mock-request-id',
+      },
+      method: 'POST',
+      originalUrl: '/api/campaigns',
+      workspace: {
+        id: defaultWorkspaceId,
+      },
+    }
+
+    const error = await runMiddleware(requirePermission(permissions.CAMPAIGN_WRITE), req)
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert.equal(error.statusCode, 403)
+    assert.equal(
+      warnings.some((message) => message.includes('req.get is not a function')),
+      false,
+    )
+  } finally {
+    console.warn = originalWarn
+  }
+})
+
 test('permission denial attempts to write an audit event', async () => {
   const req = {
     auth: {

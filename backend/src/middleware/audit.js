@@ -1,8 +1,16 @@
 import { createSupabaseServiceClient } from '../config/supabase.js'
 import { getCurrentWorkspaceId } from './workspace.js'
 
+function getHeader(req, name) {
+  if (typeof req?.get === 'function') {
+    return req.get(name) || ''
+  }
+
+  return req?.headers?.[name.toLowerCase()] || req?.headers?.[name] || ''
+}
+
 function getRequestId(req) {
-  return req.get('x-request-id') || req.get('x-correlation-id') || null
+  return getHeader(req, 'x-request-id') || getHeader(req, 'x-correlation-id') || null
 }
 
 export async function writeAuditLog({ req, action, entityType, entityId, statusCode, metadata = {} }) {
