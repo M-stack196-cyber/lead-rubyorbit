@@ -51,7 +51,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
-import { createWorkflowDraft, getWorkflowDrafts, updateWorkflowDraft } from '@/services/api'
+import { createWorkflowDraft, deleteWorkflowDraft, getWorkflowDrafts, updateWorkflowDraft } from '@/services/api'
 
 const draftStorageKey = 'leadrubyorbit.workflowBuilderDraft'
 const nodeType = 'workflowBlock'
@@ -258,6 +258,8 @@ export function WorkflowBuilderPage({ onNavigate }) {
 
 function WorkflowBuilderContent({ onNavigate }) {
   const canvasRef = useRef(null)
+  const suppressDirtyRef = useRef(false)
+  const suppressDirtyTokenRef = useRef(0)
   const [workflowName, setWorkflowName] = useState(defaultWorkflowName)
   const [workflowDraftId, setWorkflowDraftId] = useState('')
   const [nodes, setNodes] = useState(() => createSampleNodes())
@@ -271,6 +273,10 @@ function WorkflowBuilderContent({ onNavigate }) {
   const [flowInstance, setFlowInstance] = useState(null)
   const [isLibraryCollapsed, setIsLibraryCollapsed] = useState(false)
   const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false)
+  const [workflowDrafts, setWorkflowDrafts] = useState([])
+  const [isDraftsLoading, setIsDraftsLoading] = useState(false)
+  const [draftsError, setDraftsError] = useState('')
+  const [draftActionId, setDraftActionId] = useState('')
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || null,
@@ -288,14 +294,33 @@ function WorkflowBuilderContent({ onNavigate }) {
   const validationResult = useMemo(() => validateWorkflow(nodes, edges), [nodes, edges])
   const hasMultipleTriggers = workflowSummary.triggers > 1
 
-  useEffect(() => {
-    let isMounted = true
+  const runWithoutDirty = useCallback((callback, { dirty = false } = {}) => {
+    const token = suppressDirtyTokenRef.current + 1
+    suppressDirtyTokenRef.current = token
+    suppressDirtyRef.current = true
 
-    function applyDraft(draft, messageText) {
-      if (!isMounted) return
+    callback()
+    setIsDirty(dirty)
 
-      const draftNodes = Array.isArray(draft.nodes) ? normalizeSavedNodes(draft.nodes) : createSampleNodes()
-      const draftEdges = Array.isArray(draft.edges) ? normalizeSavedEdges(draft.edges) : createSampleEdges()
+    const releaseSuppression = () => {
+      if (suppressDirtyTokenRef.current !== token) return
+
+      suppressDirtyRef.current = false
+      setIsDirty(dirty)
+    }
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        window.setTimeout(releaseSuppression, 0)
+      })
+    })
+  }, [])
+
+  const applyWorkflowDraft = useCallback((draft, messageText, { dirty = false } = {}) => {
+    const draftNodes = Array.isArray(draft.nodes) ? normalizeSavedNodes(draft.nodes) : createSampleNodes()
+    const draftEdges = Array.isArray(draft.edges) ? normalizeSavedEdges(draft.edges) : createSampleEdges()
+
+    runWithoutDirty(() => {
       setWorkflowDraftId(draft.id || draft.workflowDraftId || '')
       setWorkflowName(draft.name || draft.workflowName || defaultWorkflowName)
       setNodes(draftNodes)
@@ -303,9 +328,12 @@ function WorkflowBuilderContent({ onNavigate }) {
       setSelectedNodeId('')
       setSelectedEdgeId('')
       setIsSettingsDrawerOpen(false)
-      setIsDirty(false)
       setMessage(messageText)
-    }
+    }, { dirty })
+  }, [runWithoutDirty])
+
+  useEffect(() => {
+    let isMounted = true
 
     function loadLocalDraft(messageText = 'Loaded saved workflow draft from this browser.') {
       const savedDraft = window.localStorage.getItem(draftStorageKey)
@@ -313,7 +341,8 @@ function WorkflowBuilderContent({ onNavigate }) {
       if (!savedDraft) return false
 
       try {
-        applyDraft(JSON.parse(savedDraft), messageText)
+        if (!isMounted) return false
+        applyWorkflowDraft(JSON.parse(savedDraft), messageText)
         return true
       } catch {
         if (isMounted) {
@@ -329,7 +358,8 @@ function WorkflowBuilderContent({ onNavigate }) {
         const latestDraft = Array.isArray(workflowDrafts) ? workflowDrafts[0] : null
 
         if (latestDraft) {
-          applyDraft(latestDraft, 'Loaded saved workflow draft from workspace.')
+          if (!isMounted) return
+          applyWorkflowDraft(latestDraft, 'Loaded saved workflow draft from workspace.')
           return
         }
       } catch {
@@ -351,7 +381,7 @@ function WorkflowBuilderContent({ onNavigate }) {
     return () => {
       isMounted = false
     }
-  }, [])
+  }, [applyWorkflowDraft])
 
   useEffect(() => {
     setSettingsForm(createSettingsForm(selectedNode))
@@ -359,14 +389,20 @@ function WorkflowBuilderContent({ onNavigate }) {
 
   const onNodesChange = useCallback((changes) => {
     setNodes((currentNodes) => applyNodeChanges(changes, currentNodes))
-    setIsDirty(true)
-    setMessage('')
+
+    if (!suppressDirtyRef.current) {
+      setIsDirty(true)
+      setMessage('')
+    }
   }, [])
 
   const onEdgesChange = useCallback((changes) => {
     setEdges((currentEdges) => applyEdgeChanges(changes, currentEdges))
-    setIsDirty(true)
-    setMessage('')
+
+    if (!suppressDirtyRef.current) {
+      setIsDirty(true)
+      setMessage('')
+    }
   }, [])
 
   const onConnect = useCallback((connection) => {
@@ -394,6 +430,117 @@ function WorkflowBuilderContent({ onNavigate }) {
     window.history.pushState(null, '', '/dashboard')
   }
 
+  async function refreshWorkflowDrafts() {
+    setIsDraftsLoading(true)
+    setDraftsError('')
+
+    try {
+      const drafts = await getWorkflowDrafts()
+      setWorkflowDrafts(Array.isArray(drafts) ? drafts : [])
+    } catch {
+      setDraftsError('Could not load workspace drafts.')
+    } finally {
+      setIsDraftsLoading(false)
+    }
+  }
+
+  function handleOpenDraftManager() {
+    setActiveModal('drafts')
+    refreshWorkflowDrafts()
+  }
+
+  function handleOpenWorkflowDraft(draft) {
+    applyWorkflowDraft(draft, 'Workflow draft loaded from workspace.')
+    setActiveModal(null)
+    writeLocalDraft({
+      ...createWorkflowDraftPayload({
+        workflowName: draft.name,
+        nodes: draft.nodes || [],
+        edges: draft.edges || [],
+        summary: draft.summary || {},
+        validationStatus: draft.validationStatus || 'Warning',
+      }),
+      id: draft.id,
+      workflowDraftId: draft.id,
+      workflowName: draft.name,
+    })
+  }
+
+  function handleNewDraft() {
+    const nextNodes = createSampleNodes()
+    const nextEdges = createSampleEdges()
+
+    runWithoutDirty(() => {
+      setWorkflowDraftId('')
+      setWorkflowName(defaultWorkflowName)
+      setNodes(nextNodes)
+      setEdges(nextEdges)
+      setSelectedNodeId('')
+      setSelectedEdgeId('')
+      setIsSettingsDrawerOpen(false)
+      setActiveModal(null)
+      setMessage('New workflow draft started locally.')
+    }, { dirty: true })
+    window.requestAnimationFrame(() => flowInstance?.fitView({ padding: 0.2 }))
+  }
+
+  async function handleDuplicateWorkflowDraft(draft) {
+    setDraftActionId(draft.id)
+
+    try {
+      const copiedDraft = await createWorkflowDraft(createWorkflowDraftPayload({
+        workflowName: (draft.name || defaultWorkflowName) + ' Copy',
+        nodes: draft.nodes || [],
+        edges: draft.edges || [],
+        summary: draft.summary || getWorkflowSummary(draft.nodes || [], draft.edges || []),
+        validationStatus: draft.validationStatus || 'Warning',
+      }))
+
+      setWorkflowDrafts((currentDrafts) => [copiedDraft, ...currentDrafts])
+      applyWorkflowDraft(copiedDraft, 'Workflow draft duplicated.')
+      writeLocalDraft({
+        ...createWorkflowDraftPayload({
+          workflowName: copiedDraft.name,
+          nodes: copiedDraft.nodes || [],
+          edges: copiedDraft.edges || [],
+          summary: copiedDraft.summary || {},
+          validationStatus: copiedDraft.validationStatus || 'Warning',
+        }),
+        id: copiedDraft.id,
+        workflowDraftId: copiedDraft.id,
+        workflowName: copiedDraft.name,
+      })
+      setActiveModal(null)
+    } catch {
+      setDraftsError('Could not duplicate workflow draft.')
+    } finally {
+      setDraftActionId('')
+    }
+  }
+
+  async function handleDeleteWorkflowDraft(draft) {
+    const shouldDelete = window.confirm('Delete workflow draft "' + (draft.name || 'Untitled Workflow') + '" from this workspace?')
+
+    if (!shouldDelete) return
+
+    setDraftActionId(draft.id)
+
+    try {
+      await deleteWorkflowDraft(draft.id)
+      setWorkflowDrafts((currentDrafts) => currentDrafts.filter((currentDraft) => currentDraft.id !== draft.id))
+
+      if (draft.id === workflowDraftId) {
+        setWorkflowDraftId('')
+        setMessage('Workflow draft deleted from workspace. Current canvas remains local.')
+      } else {
+        setMessage('Workflow draft deleted from workspace.')
+      }
+    } catch {
+      setDraftsError('Could not delete workflow draft.')
+    } finally {
+      setDraftActionId('')
+    }
+  }
   function handleAddBlock(block, category, position) {
     const nextNode = createFlowNode(category.kind, category.category, block.label, block.description, block.icon, position || nextNodePosition(nodes.length))
     setNodes((currentNodes) => [...currentNodes, nextNode])
@@ -489,25 +636,27 @@ function WorkflowBuilderContent({ onNavigate }) {
 
     if (!shouldClear) return
 
-    setNodes([])
-    setEdges([])
-    setSelectedNodeId('')
-    setSelectedEdgeId('')
-    setIsSettingsDrawerOpen(false)
-    setIsDirty(true)
-    setMessage('Canvas cleared. Save draft to keep this blank workflow.')
+    runWithoutDirty(() => {
+      setNodes([])
+      setEdges([])
+      setSelectedNodeId('')
+      setSelectedEdgeId('')
+      setIsSettingsDrawerOpen(false)
+      setMessage('Canvas cleared. Save draft to keep this blank workflow.')
+    }, { dirty: true })
   }
 
   function handleResetWorkflow() {
     const nextNodes = createSampleNodes()
-    setWorkflowName(defaultWorkflowName)
-    setNodes(nextNodes)
-    setEdges(createSampleEdges())
-    setSelectedNodeId('')
-    setSelectedEdgeId('')
-    setIsSettingsDrawerOpen(false)
-    setIsDirty(true)
-    setMessage('Sample workflow restored locally.')
+    runWithoutDirty(() => {
+      setWorkflowName(defaultWorkflowName)
+      setNodes(nextNodes)
+      setEdges(createSampleEdges())
+      setSelectedNodeId('')
+      setSelectedEdgeId('')
+      setIsSettingsDrawerOpen(false)
+      setMessage('Sample workflow restored locally.')
+    }, { dirty: true })
     window.requestAnimationFrame(() => flowInstance?.fitView({ padding: 0.2 }))
   }
 
@@ -522,7 +671,9 @@ function WorkflowBuilderContent({ onNavigate }) {
       validationStatus: nextValidationResult.status,
     })
 
-    setEdges(nextEdges)
+    runWithoutDirty(() => {
+      setEdges(nextEdges)
+    }, { dirty: false })
 
     try {
       const savedDraft = workflowDraftId
@@ -684,6 +835,22 @@ function WorkflowBuilderContent({ onNavigate }) {
               Multiple triggers detected
             </Badge>
           ) : null}
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            type="button"
+            onClick={handleOpenDraftManager}
+          >
+            <Workflow className="h-4 w-4" aria-hidden="true" />
+            Saved Drafts
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            type="button"
+            onClick={handleNewDraft}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            New Draft
+          </button>
           <button
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
             type="button"
@@ -909,6 +1076,23 @@ function WorkflowBuilderContent({ onNavigate }) {
         ) : null}
       </section>
 
+      {activeModal === 'drafts' ? (
+        <Modal title="Saved Workflow Drafts" onClose={() => setActiveModal(null)}>
+          <DraftManager
+            actionDraftId={draftActionId}
+            currentDraftId={workflowDraftId}
+            drafts={workflowDrafts}
+            error={draftsError}
+            isLoading={isDraftsLoading}
+            onDelete={handleDeleteWorkflowDraft}
+            onDuplicate={handleDuplicateWorkflowDraft}
+            onNewDraft={handleNewDraft}
+            onOpen={handleOpenWorkflowDraft}
+            onRefresh={refreshWorkflowDrafts}
+          />
+        </Modal>
+      ) : null}
+
       {activeModal === 'validation' ? (
         <Modal title="Workflow Validation" onClose={() => setActiveModal(null)}>
           <ValidationResult result={validationResult} />
@@ -980,6 +1164,116 @@ function BuilderTips() {
   )
 }
 
+function DraftManager({ actionDraftId, currentDraftId, drafts, error, isLoading, onDelete, onDuplicate, onNewDraft, onOpen, onRefresh }) {
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-col gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-semibold">Visual draft mode</p>
+          <p className="mt-1">Saved workflow drafts do not execute automation or send emails.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            type="button"
+            onClick={onRefresh}
+          >
+            <RefreshCcw className="h-4 w-4" aria-hidden="true" />
+            Refresh
+          </button>
+          <button
+            className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-red-800"
+            type="button"
+            onClick={onNewDraft}
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            New Draft
+          </button>
+        </div>
+      </div>
+
+      {error ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm font-medium text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      {isLoading ? (
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-8 text-center text-sm font-medium text-slate-600">
+          Loading workspace drafts...
+        </div>
+      ) : null}
+
+      {!isLoading && !drafts.length ? (
+        <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
+          <Workflow className="mx-auto h-8 w-8 text-slate-400" aria-hidden="true" />
+          <p className="mt-3 text-sm font-semibold text-slate-950">No workspace drafts yet</p>
+          <p className="mt-1 text-sm text-slate-600">Save the current visual workflow or start a new draft.</p>
+        </div>
+      ) : null}
+
+      {!isLoading && drafts.length ? (
+        <div className="max-h-[56vh] overflow-auto rounded-md border border-slate-200">
+          <div className="min-w-[760px] divide-y divide-slate-200">
+            {drafts.map((draft) => (
+              <div className="grid gap-3 bg-white p-4 transition hover:bg-slate-50 lg:grid-cols-[minmax(14rem,1.4fr)_0.7fr_0.7fr_0.8fr_0.8fr_auto]" key={draft.id}>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate text-sm font-semibold text-slate-950">{draft.name || 'Untitled Workflow'}</p>
+                    {draft.id === currentDraftId ? (
+                      <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                        Open
+                      </Badge>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">Updated {formatDraftDate(draft.updatedAt)}</p>
+                </div>
+                <DraftMeta label="Status" value={draft.status || 'draft'} />
+                <DraftMeta label="Mode" value={draft.mode || 'visual-only'} />
+                <DraftMeta label="Validation" value={draft.validationStatus || 'Warning'} />
+                <DraftMeta label="Size" value={`${getDraftNodeCount(draft)} nodes / ${getDraftEdgeCount(draft)} edges`} />
+                <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
+                  <button
+                    className="inline-flex min-h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                    type="button"
+                    onClick={() => onOpen(draft)}
+                  >
+                    Open
+                  </button>
+                  <button
+                    className="inline-flex min-h-9 items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={actionDraftId === draft.id}
+                    type="button"
+                    onClick={() => onDuplicate(draft)}
+                  >
+                    Duplicate
+                  </button>
+                  <button
+                    className="inline-flex min-h-9 items-center justify-center rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={actionDraftId === draft.id}
+                    type="button"
+                    onClick={() => onDelete(draft)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function DraftMeta({ label, value }) {
+  return (
+    <div>
+      <p className="text-[0.68rem] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-slate-800">{value}</p>
+    </div>
+  )
+}
 function PreviewSummary({ summary }) {
   return (
     <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-4">
@@ -991,6 +1285,28 @@ function PreviewSummary({ summary }) {
   )
 }
 
+function getDraftNodeCount(draft) {
+  if (Array.isArray(draft.nodes)) return draft.nodes.length
+  return Number(draft.summary?.nodes || 0)
+}
+
+function getDraftEdgeCount(draft) {
+  if (Array.isArray(draft.edges)) return draft.edges.length
+  return Number(draft.summary?.edges || 0)
+}
+
+function formatDraftDate(value) {
+  if (!value) return 'Not saved yet'
+
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(new Date(value))
+  } catch {
+    return 'Not saved yet'
+  }
+}
 function InfoPill({ label, value }) {
   return (
     <div>
