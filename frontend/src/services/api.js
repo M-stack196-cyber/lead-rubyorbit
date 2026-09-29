@@ -639,14 +639,18 @@ export async function getWorkflowSettings() {
 }
 
 export async function getWorkflowDrafts() {
-  const response = await fetch(API_BASE_URL + '/api/workflows')
+  const response = await fetch(API_BASE_URL + '/api/workflows', {
+    cache: 'no-store',
+  })
 
   const payload = await parseApiResponse(response)
   return payload.data
 }
 
 export async function getWorkflowDraft(workflowDraftId) {
-  const response = await fetch(API_BASE_URL + '/api/workflows/' + workflowDraftId)
+  const response = await fetch(API_BASE_URL + '/api/workflows/' + workflowDraftId, {
+    cache: 'no-store',
+  })
 
   const payload = await parseApiResponse(response)
   return payload.data

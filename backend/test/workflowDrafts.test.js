@@ -159,6 +159,42 @@ test('workflow draft list is scoped to the current workspace', async () => {
   ])
 })
 
+
+test('workflow draft list preserves saved compatibility summary metadata', async () => {
+  const savedSummary = {
+    schemaVersion: 'visual-workflow-v1',
+    localCompatibilityStatus: 'Passed',
+    backendCompatibilityStatus: 'Passed',
+    backendValidatedAt: '2026-09-28T15:27:08.723Z',
+    backendValidationSummary: {
+      nodes: 2,
+      edges: 1,
+      triggers: 1,
+      actions: 1,
+      waits: 0,
+      conditions: 0,
+      mappedBlocks: 2,
+      unmappedBlocks: 0,
+    },
+    executionEnabled: false,
+    safety: 'visual-only',
+    mode: 'visual-only',
+  }
+  const query = createMockQuery({
+    data: [createWorkflowDraftRow({ summary: savedSummary })],
+    error: null,
+  })
+
+  const result = await listWorkflowDrafts({
+    supabase: createMockSupabase(query),
+    workspaceId: 'workspace-1',
+  })
+
+  assert.deepEqual(result[0].summary, savedSummary)
+  assert.equal(result[0].summary.backendCompatibilityStatus, 'Passed')
+  assert.equal(result[0].summary.backendValidatedAt, '2026-09-28T15:27:08.723Z')
+})
+
 test('workflow draft update and delete use workspace ownership filters', async () => {
   const updateQuery = createMockQuery({ data: createWorkflowDraftRow(), error: null })
   const deleteQuery = createMockQuery({ data: createWorkflowDraftRow(), error: null })

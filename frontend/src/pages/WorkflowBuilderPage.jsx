@@ -298,6 +298,7 @@ function WorkflowBuilderContent({ onNavigate }) {
   const canvasRef = useRef(null)
   const suppressDirtyRef = useRef(false)
   const suppressDirtyTokenRef = useRef(0)
+  const backendCompatibilitySnapshotRef = useRef(null)
   const [workflowName, setWorkflowName] = useState(defaultWorkflowName)
   const [workflowDraftId, setWorkflowDraftId] = useState('')
   const [nodes, setNodes] = useState(() => createSampleNodes())
@@ -319,6 +320,7 @@ function WorkflowBuilderContent({ onNavigate }) {
   const [backendCompatibilityResult, setBackendCompatibilityResult] = useState(null)
   const [backendCompatibilityCheckedAt, setBackendCompatibilityCheckedAt] = useState('')
   const [backendCompatibilitySchemaJson, setBackendCompatibilitySchemaJson] = useState('')
+  const [backendCompatibilityValidationSchemaJson, setBackendCompatibilityValidationSchemaJson] = useState('')
   const [backendCompatibilityError, setBackendCompatibilityError] = useState('')
   const [isBackendCompatibilityLoading, setIsBackendCompatibilityLoading] = useState(false)
   const [savedDraftSummary, setSavedDraftSummary] = useState(null)
@@ -338,17 +340,22 @@ function WorkflowBuilderContent({ onNavigate }) {
   const workflowSummary = useMemo(() => getWorkflowSummary(nodes, edges), [nodes, edges])
   const validationResult = useMemo(() => validateWorkflow(nodes, edges), [nodes, edges])
   const compatibilityResult = useMemo(() => checkWorkflowCompatibility(nodes, edges), [nodes, edges])
+  const workflowSchemaEdges = useMemo(() => applyConditionEdgeLabels(nodes, edges), [nodes, edges])
   const workflowSchema = useMemo(
     () =>
       createWorkflowSchema({
         workflowName,
         nodes,
-        edges,
+        edges: workflowSchemaEdges,
         summary: workflowSummary,
         validationStatus: validationResult.status,
         compatibilityResult,
       }),
-    [compatibilityResult, edges, nodes, validationResult.status, workflowName, workflowSummary],
+    [compatibilityResult, nodes, validationResult.status, workflowName, workflowSchemaEdges, workflowSummary],
+  )
+  const backendValidationSchemaJson = useMemo(
+    () => createBackendValidationSchemaJson(workflowSchema),
+    [workflowSchema],
   )
   const hasMultipleTriggers = workflowSummary.triggers > 1
 
@@ -389,10 +396,12 @@ function WorkflowBuilderContent({ onNavigate }) {
       setBackendCompatibilityResult(null)
       setBackendCompatibilityCheckedAt('')
       setBackendCompatibilitySchemaJson('')
+      setBackendCompatibilityValidationSchemaJson('')
       setBackendCompatibilityError('')
       setSavedDraftSummary(draft.summary || null)
       setMessage(messageText)
     }, { dirty })
+    backendCompatibilitySnapshotRef.current = null
   }, [runWithoutDirty])
 
   useEffect(() => {
@@ -550,7 +559,9 @@ function WorkflowBuilderContent({ onNavigate }) {
       setBackendCompatibilityResult(null)
       setBackendCompatibilityCheckedAt('')
       setBackendCompatibilitySchemaJson('')
+      setBackendCompatibilityValidationSchemaJson('')
       setBackendCompatibilityError('')
+      backendCompatibilitySnapshotRef.current = null
       setSavedDraftSummary(null)
       setMessage('New workflow draft started locally.')
     }, { dirty: true })
@@ -748,13 +759,35 @@ function WorkflowBuilderContent({ onNavigate }) {
   }
 
   async function handleSaveDraft() {
-    const nextEdges = applyConditionEdgeLabels(nodes, edges)
+    const nextEdges = workflowSchemaEdges
     const nextValidationResult = validateWorkflow(nodes, nextEdges)
     const nextSummary = getWorkflowSummary(nodes, nextEdges)
     const nextLocalCompatibilityResult = checkWorkflowCompatibility(nodes, nextEdges)
+    const nextWorkflowSchema = createWorkflowSchema({
+      workflowName,
+      nodes,
+      edges: nextEdges,
+      summary: nextSummary,
+      validationStatus: nextValidationResult.status,
+      compatibilityResult: nextLocalCompatibilityResult,
+    })
+    const nextBackendValidationSchemaJson = createBackendValidationSchemaJson(nextWorkflowSchema)
+    const latestBackendSnapshot = backendCompatibilitySnapshotRef.current || (
+      backendCompatibilityResult && backendCompatibilityCheckedAt && backendCompatibilityValidationSchemaJson
+        ? {
+            checkedAt: backendCompatibilityCheckedAt,
+            result: backendCompatibilityResult,
+            validationSchemaJson: backendCompatibilityValidationSchemaJson,
+          }
+        : null
+    )
+    const isBackendValidationCurrent = latestBackendSnapshot?.validationSchemaJson === nextBackendValidationSchemaJson
+    const currentBackendSnapshot = isBackendValidationCurrent
+      ? latestBackendSnapshot
+      : null
     const nextSummarySnapshot = createWorkflowSummarySnapshot({
-      backendCompatibilityCheckedAt,
-      backendCompatibilityResult: backendCompatibilitySchemaJson === previewJson ? backendCompatibilityResult : null,
+      backendCompatibilityCheckedAt: currentBackendSnapshot?.checkedAt || '',
+      backendCompatibilityResult: currentBackendSnapshot?.result || null,
       localCompatibilityStatus: nextLocalCompatibilityResult.status,
       summary: nextSummary,
     })
@@ -814,9 +847,19 @@ function WorkflowBuilderContent({ onNavigate }) {
 
     try {
       const backendResult = await validateWorkflowSchema(workflowSchema)
+      const checkedAt = new Date().toISOString()
+      const validationSchemaJson = createBackendValidationSchemaJson(workflowSchema)
+
+      backendCompatibilitySnapshotRef.current = {
+        checkedAt,
+        result: backendResult,
+        schemaJson: previewJson,
+        validationSchemaJson,
+      }
       setBackendCompatibilityResult(backendResult)
-      setBackendCompatibilityCheckedAt(new Date().toISOString())
+      setBackendCompatibilityCheckedAt(checkedAt)
       setBackendCompatibilitySchemaJson(previewJson)
+      setBackendCompatibilityValidationSchemaJson(validationSchemaJson)
     } catch (error) {
       setBackendCompatibilityError(error.message || 'Could not validate workflow schema with backend.')
     } finally {
@@ -896,18 +939,22 @@ function WorkflowBuilderContent({ onNavigate }) {
   }, [selectedEdge, selectedNode])
 
   const previewJson = JSON.stringify(workflowSchema, null, 2)
-  const currentBackendCompatibilityResult = backendCompatibilitySchemaJson === previewJson
+  const currentBackendCompatibilityResult = backendCompatibilityValidationSchemaJson === backendValidationSchemaJson
     ? backendCompatibilityResult
     : null
-  const savedBackendCompatibilityStatus = !isDirty ? savedDraftSummary?.backendCompatibilityStatus : ''
-  const savedBackendValidatedAt = !isDirty ? savedDraftSummary?.backendValidatedAt : ''
+  const savedSummarySnapshot = normalizeDraftSummary({ summary: savedDraftSummary })
+  const savedBackendCompatibilityStatus = !isDirty ? getBackendCompatibilityStatusFromSummary(savedSummarySnapshot) : ''
+  const savedBackendValidatedAt = !isDirty ? getBackendValidatedAtFromSummary(savedSummarySnapshot) : ''
 
   useEffect(() => {
-    if (!backendCompatibilitySchemaJson || backendCompatibilitySchemaJson === previewJson) return
+    const checkedSchemaJson = backendCompatibilitySnapshotRef.current?.schemaJson || backendCompatibilitySchemaJson
+    if (!checkedSchemaJson || checkedSchemaJson === previewJson) return
 
+    backendCompatibilitySnapshotRef.current = null
     setBackendCompatibilityResult(null)
     setBackendCompatibilityCheckedAt('')
     setBackendCompatibilitySchemaJson('')
+    setBackendCompatibilityValidationSchemaJson('')
     setBackendCompatibilityError('')
   }, [backendCompatibilitySchemaJson, previewJson])
 
@@ -1055,6 +1102,11 @@ function WorkflowBuilderContent({ onNavigate }) {
       {message ? (
         <div className="shrink-0 border-b border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800">
           {message}
+        </div>
+      ) : null}
+      {currentBackendCompatibilityResult ? (
+        <div className="shrink-0 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800">
+          Backend validation will be saved with this draft.
         </div>
       ) : null}
 
@@ -1327,6 +1379,11 @@ function BuilderTips() {
 }
 
 function DraftManager({ actionDraftId, currentDraftId, drafts, error, isLoading, onDelete, onDuplicate, onNewDraft, onOpen, onRefresh }) {
+  const [activeFilter, setActiveFilter] = useState('all')
+  const filterSummary = getDraftFilterSummary(drafts)
+  const filters = getDraftFilters(filterSummary)
+  const filteredDrafts = getFilteredDrafts(drafts, activeFilter)
+
   return (
     <div className="grid gap-4">
       <div className="flex flex-col gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between">
@@ -1354,6 +1411,40 @@ function DraftManager({ actionDraftId, currentDraftId, drafts, error, isLoading,
         </div>
       </div>
 
+      {!isLoading && drafts.length ? (
+        <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+          <div className="grid gap-2 sm:grid-cols-4">
+            <InfoPill label="Total drafts" value={filterSummary.total} />
+            <InfoPill label="Backend checked" value={filterSummary.checked} />
+            <InfoPill label="Not checked" value={filterSummary.notChecked} />
+            <InfoPill label="Latest checked" value={filterSummary.latestCheckedAt ? formatDraftDate(filterSummary.latestCheckedAt) : 'Not checked'} />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {filters.map((filter) => (
+              <button
+                className={cn(
+                  'inline-flex min-h-8 items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-semibold transition',
+                  activeFilter === filter.id
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
+                )}
+                key={filter.id}
+                type="button"
+                onClick={() => setActiveFilter(filter.id)}
+              >
+                {filter.label}
+                <span className={cn(
+                  'rounded-full px-2 py-0.5 text-xs',
+                  activeFilter === filter.id ? 'bg-white/20 text-primary-foreground' : 'bg-slate-100 text-slate-600',
+                )}>
+                  {filter.count}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {error ? (
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm font-medium text-red-700">
           {error}
@@ -1374,10 +1465,18 @@ function DraftManager({ actionDraftId, currentDraftId, drafts, error, isLoading,
         </div>
       ) : null}
 
-      {!isLoading && drafts.length ? (
+      {!isLoading && drafts.length && !filteredDrafts.length ? (
+        <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
+          <Workflow className="mx-auto h-8 w-8 text-slate-400" aria-hidden="true" />
+          <p className="mt-3 text-sm font-semibold text-slate-950">No drafts match this filter.</p>
+          <p className="mt-1 text-sm text-slate-600">Choose another backend compatibility filter or refresh drafts.</p>
+        </div>
+      ) : null}
+
+      {!isLoading && filteredDrafts.length ? (
         <div className="max-h-[56vh] overflow-auto rounded-md border border-slate-200">
           <div className="min-w-[900px] divide-y divide-slate-200">
-            {drafts.map((draft) => (
+            {filteredDrafts.map((draft) => (
               <div className="grid gap-3 bg-white p-4 transition hover:bg-slate-50 lg:grid-cols-[minmax(13rem,1.4fr)_0.55fr_0.65fr_0.85fr_0.85fr_0.75fr_auto]" key={draft.id}>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -1562,20 +1661,119 @@ function BackendSchemaCheck({ error, isLoading, onCheck, result, savedStatus, sa
 
 function getDraftNodeCount(draft) {
   if (Array.isArray(draft.nodes)) return draft.nodes.length
-  return Number(draft.summary?.nodes || 0)
+  return Number(normalizeDraftSummary(draft).nodes || 0)
 }
 
 function getDraftEdgeCount(draft) {
   if (Array.isArray(draft.edges)) return draft.edges.length
-  return Number(draft.summary?.edges || 0)
+  return Number(normalizeDraftSummary(draft).edges || 0)
+}
+
+function normalizeDraftSummary(draft = {}) {
+  const draftShape = draft?.data && typeof draft.data === 'object' && !Array.isArray(draft.data)
+    ? draft.data
+    : draft
+  const summary = draftShape?.summary || draftShape?.validationSummary || draftShape?.validation_summary
+
+  if (!summary) return {}
+  if (typeof summary === 'string') {
+    try {
+      const parsedSummary = JSON.parse(summary)
+      return parsedSummary && typeof parsedSummary === 'object' && !Array.isArray(parsedSummary)
+        ? parsedSummary
+        : {}
+    } catch {
+      return {}
+    }
+  }
+  if (typeof summary === 'object' && !Array.isArray(summary)) return summary
+  return {}
+}
+
+function normalizeCompatibilityStatus(status) {
+  const nextStatus = String(status || '').trim()
+  return ['Passed', 'Warning', 'Error'].includes(nextStatus) ? nextStatus : ''
+}
+
+function getLocalCompatibilityStatusFromSummary(summary) {
+  return normalizeCompatibilityStatus(summary.localCompatibilityStatus || summary.compatibilityStatus)
+}
+
+function getBackendCompatibilityStatusFromSummary(summary) {
+  return normalizeCompatibilityStatus(summary.backendCompatibilityStatus)
+}
+
+function getBackendValidatedAtFromSummary(summary) {
+  return summary.backendValidatedAt || ''
 }
 
 function getDraftLocalCompatibilityStatus(draft) {
-  return draft.summary?.localCompatibilityStatus || draft.summary?.compatibilityStatus || 'Not checked'
+  return getLocalCompatibilityStatusFromSummary(normalizeDraftSummary(draft)) || 'Not checked'
 }
 
 function getDraftBackendCompatibilityStatus(draft) {
-  return draft.summary?.backendCompatibilityStatus || 'Not checked'
+  return getBackendCompatibilityStatusFromSummary(normalizeDraftSummary(draft)) || 'Not checked'
+}
+
+function getDraftBackendStatusValue(draft) {
+  return getBackendCompatibilityStatusFromSummary(normalizeDraftSummary(draft))
+}
+
+function getDraftFilterSummary(drafts) {
+  const summary = {
+    total: drafts.length,
+    passed: 0,
+    warning: 0,
+    error: 0,
+    checked: 0,
+    notChecked: 0,
+    latestCheckedAt: '',
+  }
+
+  drafts.forEach((draft) => {
+    const status = getDraftBackendStatusValue(draft)
+
+    if (status === 'Passed') summary.passed += 1
+    if (status === 'Warning') summary.warning += 1
+    if (status === 'Error') summary.error += 1
+
+    if (status) {
+      summary.checked += 1
+    } else {
+      summary.notChecked += 1
+    }
+
+    const checkedAt = status ? getBackendValidatedAtFromSummary(normalizeDraftSummary(draft)) : ''
+    if (checkedAt && (!summary.latestCheckedAt || new Date(checkedAt) > new Date(summary.latestCheckedAt))) {
+      summary.latestCheckedAt = checkedAt
+    }
+  })
+
+  return summary
+}
+
+function getDraftFilters(summary) {
+  return [
+    { id: 'all', label: 'All', count: summary.total },
+    { id: 'passed', label: 'Backend Passed', count: summary.passed },
+    { id: 'warning', label: 'Backend Warning', count: summary.warning },
+    { id: 'error', label: 'Backend Error', count: summary.error },
+    { id: 'not_checked', label: 'Not checked', count: summary.notChecked },
+  ]
+}
+
+function getFilteredDrafts(drafts, activeFilter) {
+  if (activeFilter === 'all') return drafts
+
+  return drafts.filter((draft) => {
+    const status = getDraftBackendStatusValue(draft)
+
+    if (activeFilter === 'passed') return status === 'Passed'
+    if (activeFilter === 'warning') return status === 'Warning'
+    if (activeFilter === 'error') return status === 'Error'
+    if (activeFilter === 'not_checked') return !status
+    return true
+  })
 }
 
 function formatDraftDate(value) {
@@ -2061,6 +2259,17 @@ function createWorkflowSummarySnapshot({ backendCompatibilityCheckedAt, backendC
   }
 
   return snapshot
+}
+
+function createBackendValidationSchemaJson(schema = {}) {
+  return JSON.stringify({
+    schemaVersion: schema.schemaVersion || 'visual-workflow-v1',
+    mode: schema.mode || visualOnlySafety,
+    executionEnabled: schema.executionEnabled === true,
+    safety: schema.safety || visualOnlySafety,
+    nodes: Array.isArray(schema.nodes) ? schema.nodes : [],
+    edges: Array.isArray(schema.edges) ? schema.edges : [],
+  })
 }
 
 function pickWorkflowValidationSummary(summary = {}) {
