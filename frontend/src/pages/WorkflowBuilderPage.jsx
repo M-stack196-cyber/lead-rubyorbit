@@ -321,6 +321,7 @@ function WorkflowBuilderContent({ onNavigate }) {
   const [backendCompatibilityCheckedAt, setBackendCompatibilityCheckedAt] = useState('')
   const [backendCompatibilitySchemaJson, setBackendCompatibilitySchemaJson] = useState('')
   const [backendCompatibilityValidationSchemaJson, setBackendCompatibilityValidationSchemaJson] = useState('')
+  const [isBackendValidationStale, setIsBackendValidationStale] = useState(false)
   const [backendCompatibilityError, setBackendCompatibilityError] = useState('')
   const [isBackendCompatibilityLoading, setIsBackendCompatibilityLoading] = useState(false)
   const [savedDraftSummary, setSavedDraftSummary] = useState(null)
@@ -358,6 +359,29 @@ function WorkflowBuilderContent({ onNavigate }) {
     [workflowSchema],
   )
   const hasMultipleTriggers = workflowSummary.triggers > 1
+
+  const clearBackendCompatibilityValidation = useCallback(({ markStale = false } = {}) => {
+    const hadBackendValidation = Boolean(
+      backendCompatibilitySnapshotRef.current ||
+      backendCompatibilityResult ||
+      backendCompatibilityCheckedAt ||
+      backendCompatibilitySchemaJson ||
+      backendCompatibilityValidationSchemaJson,
+    )
+
+    backendCompatibilitySnapshotRef.current = null
+    setBackendCompatibilityResult(null)
+    setBackendCompatibilityCheckedAt('')
+    setBackendCompatibilitySchemaJson('')
+    setBackendCompatibilityValidationSchemaJson('')
+    setBackendCompatibilityError('')
+    setIsBackendValidationStale(markStale && hadBackendValidation)
+  }, [
+    backendCompatibilityCheckedAt,
+    backendCompatibilityResult,
+    backendCompatibilitySchemaJson,
+    backendCompatibilityValidationSchemaJson,
+  ])
 
   const runWithoutDirty = useCallback((callback, { dirty = false } = {}) => {
     const token = suppressDirtyTokenRef.current + 1
@@ -397,6 +421,7 @@ function WorkflowBuilderContent({ onNavigate }) {
       setBackendCompatibilityCheckedAt('')
       setBackendCompatibilitySchemaJson('')
       setBackendCompatibilityValidationSchemaJson('')
+      setIsBackendValidationStale(false)
       setBackendCompatibilityError('')
       setSavedDraftSummary(draft.summary || null)
       setMessage(messageText)
@@ -463,27 +488,31 @@ function WorkflowBuilderContent({ onNavigate }) {
     setNodes((currentNodes) => applyNodeChanges(changes, currentNodes))
 
     if (!suppressDirtyRef.current) {
+      clearBackendCompatibilityValidation({ markStale: true })
       setIsDirty(true)
       setMessage('')
     }
-  }, [])
+  }, [clearBackendCompatibilityValidation])
 
   const onEdgesChange = useCallback((changes) => {
     setEdges((currentEdges) => applyEdgeChanges(changes, currentEdges))
 
     if (!suppressDirtyRef.current) {
+      clearBackendCompatibilityValidation({ markStale: true })
       setIsDirty(true)
       setMessage('')
     }
-  }, [])
+  }, [clearBackendCompatibilityValidation])
 
   const onConnect = useCallback((connection) => {
     setEdges((currentEdges) => applyConditionEdgeLabels(nodes, addEdge(createConnectedEdge(connection, nodes, currentEdges), currentEdges)))
+    clearBackendCompatibilityValidation({ markStale: true })
     setIsDirty(true)
     setMessage('Workflow nodes connected locally.')
-  }, [nodes])
+  }, [clearBackendCompatibilityValidation, nodes])
 
-  function markDirty() {
+  function markDirty({ clearBackendValidation = true } = {}) {
+    if (clearBackendValidation) clearBackendCompatibilityValidation({ markStale: true })
     setIsDirty(true)
     setMessage('')
   }
@@ -560,6 +589,7 @@ function WorkflowBuilderContent({ onNavigate }) {
       setBackendCompatibilityCheckedAt('')
       setBackendCompatibilitySchemaJson('')
       setBackendCompatibilityValidationSchemaJson('')
+      setIsBackendValidationStale(false)
       setBackendCompatibilityError('')
       backendCompatibilitySnapshotRef.current = null
       setSavedDraftSummary(null)
@@ -640,6 +670,7 @@ function WorkflowBuilderContent({ onNavigate }) {
   function handleAddBlock(block, category, position) {
     const nextNode = createFlowNode(category.kind, category.category, block.label, block.description, block.icon, position || nextNodePosition(nodes.length))
     setNodes((currentNodes) => [...currentNodes, nextNode])
+    clearBackendCompatibilityValidation({ markStale: true })
     setSelectedNodeId(nextNode.id)
     setSelectedEdgeId('')
     setIsSettingsDrawerOpen(true)
@@ -693,6 +724,7 @@ function WorkflowBuilderContent({ onNavigate }) {
   function handleSaveBlockSettings() {
     if (!selectedNode) return
 
+    clearBackendCompatibilityValidation({ markStale: true })
     setNodes((currentNodes) => {
       const nextNodes = currentNodes.map((node) =>
         node.id === selectedNode.id
@@ -718,6 +750,7 @@ function WorkflowBuilderContent({ onNavigate }) {
   function handleDeleteNode() {
     if (!selectedNode) return
 
+    clearBackendCompatibilityValidation({ markStale: true })
     setNodes((currentNodes) => currentNodes.filter((node) => node.id !== selectedNode.id))
     setEdges((currentEdges) => currentEdges.filter((edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id))
     setSelectedNodeId('')
@@ -732,6 +765,7 @@ function WorkflowBuilderContent({ onNavigate }) {
 
     if (!shouldClear) return
 
+    clearBackendCompatibilityValidation({ markStale: true })
     runWithoutDirty(() => {
       setNodes([])
       setEdges([])
@@ -745,6 +779,7 @@ function WorkflowBuilderContent({ onNavigate }) {
 
   function handleResetWorkflow() {
     const nextNodes = createSampleNodes()
+    clearBackendCompatibilityValidation({ markStale: true })
     runWithoutDirty(() => {
       setWorkflowName(defaultWorkflowName)
       setNodes(nextNodes)
@@ -860,6 +895,7 @@ function WorkflowBuilderContent({ onNavigate }) {
       setBackendCompatibilityCheckedAt(checkedAt)
       setBackendCompatibilitySchemaJson(previewJson)
       setBackendCompatibilityValidationSchemaJson(validationSchemaJson)
+      setIsBackendValidationStale(false)
     } catch (error) {
       setBackendCompatibilityError(error.message || 'Could not validate workflow schema with backend.')
     } finally {
@@ -892,6 +928,7 @@ function WorkflowBuilderContent({ onNavigate }) {
   function handleDeleteSelectedEdge() {
     if (!selectedEdge) return
 
+    clearBackendCompatibilityValidation({ markStale: true })
     setEdges((currentEdges) => currentEdges.filter((edge) => edge.id !== selectedEdge.id))
     setSelectedEdgeId('')
     setIsDirty(true)
@@ -913,6 +950,7 @@ function WorkflowBuilderContent({ onNavigate }) {
 
       if (selectedEdge) {
         event.preventDefault()
+        clearBackendCompatibilityValidation({ markStale: true })
         setEdges((currentEdges) => currentEdges.filter((edge) => edge.id !== selectedEdge.id))
         setSelectedEdgeId('')
         setIsDirty(true)
@@ -922,6 +960,7 @@ function WorkflowBuilderContent({ onNavigate }) {
 
       if (selectedNode) {
         event.preventDefault()
+        clearBackendCompatibilityValidation({ markStale: true })
         setNodes((currentNodes) => currentNodes.filter((node) => node.id !== selectedNode.id))
         setEdges((currentEdges) =>
           currentEdges.filter((edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id),
@@ -936,10 +975,10 @@ function WorkflowBuilderContent({ onNavigate }) {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedEdge, selectedNode])
+  }, [clearBackendCompatibilityValidation, selectedEdge, selectedNode])
 
   const previewJson = JSON.stringify(workflowSchema, null, 2)
-  const currentBackendCompatibilityResult = backendCompatibilityValidationSchemaJson === backendValidationSchemaJson
+  const currentBackendCompatibilityResult = !isBackendValidationStale && backendCompatibilityValidationSchemaJson === backendValidationSchemaJson
     ? backendCompatibilityResult
     : null
   const savedSummarySnapshot = normalizeDraftSummary({ summary: savedDraftSummary })
@@ -950,13 +989,8 @@ function WorkflowBuilderContent({ onNavigate }) {
     const checkedSchemaJson = backendCompatibilitySnapshotRef.current?.schemaJson || backendCompatibilitySchemaJson
     if (!checkedSchemaJson || checkedSchemaJson === previewJson) return
 
-    backendCompatibilitySnapshotRef.current = null
-    setBackendCompatibilityResult(null)
-    setBackendCompatibilityCheckedAt('')
-    setBackendCompatibilitySchemaJson('')
-    setBackendCompatibilityValidationSchemaJson('')
-    setBackendCompatibilityError('')
-  }, [backendCompatibilitySchemaJson, previewJson])
+    clearBackendCompatibilityValidation({ markStale: true })
+  }, [backendCompatibilitySchemaJson, clearBackendCompatibilityValidation, previewJson])
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-slate-100 text-slate-950">
@@ -1107,6 +1141,11 @@ function WorkflowBuilderContent({ onNavigate }) {
       {currentBackendCompatibilityResult ? (
         <div className="shrink-0 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800">
           Backend validation will be saved with this draft.
+        </div>
+      ) : null}
+      {isBackendValidationStale ? (
+        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800">
+          Workflow changed after backend validation. Recheck with backend before saving validation status.
         </div>
       ) : null}
 
