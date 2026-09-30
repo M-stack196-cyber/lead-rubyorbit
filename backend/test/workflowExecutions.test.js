@@ -5,6 +5,7 @@ import { afterEach, test } from 'node:test'
 import { createApp } from '../src/app.js'
 import { env } from '../src/config/env.js'
 import {
+  resumeWorkflowExecution,
   runWorkflowExecution,
   startWorkflowExecution,
 } from '../src/modules/workflowExecutions/workflowExecutions.service.js'
@@ -204,6 +205,16 @@ async function startAndRun(supabase, payload = {}) {
   })
 }
 
+async function resumeExecution(supabase, executionId, resumeContext = {}) {
+  return resumeWorkflowExecution({
+    executionId,
+    context: resumeContext,
+  }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+}
+
 async function requestApp(path, options = {}) {
   const app = createApp()
   const server = http.createServer(app)
@@ -372,7 +383,138 @@ test('send approved email does not bypass email safety', async () => {
   assert.equal(execution.status, 'completed')
   assert.equal(sendStep.status, 'completed')
   assert.equal(sendStep.output.realSendingEnabled, false)
-  assert.equal(sendStep.output.result, 'Mock completed. No real email was sent.')
+  assert.equal(sendStep.output.result, 'Approved email simulated. No real email sent.')
+  assert.equal(supabase.calls.some((call) => call[1] === 'sent_emails'), false)
+  assert.equal(supabase.calls.some((call) => call[1] === 'email_accounts'), false)
+})
+
+
+
+test('workflow execution resume requires auth', async () => {
+  env.auth.required = true
+
+  const { response, payload } = await requestApp('/api/workflow-executions/execution-1/resume', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ context: { replyReceived: false } }),
+  })
+
+  assert.equal(response.status, 401)
+  assert.equal(payload.message, 'Authentication token is required.')
+})
+
+test('resume paused approval execution continues to next node', async () => {
+  const supabase = createMockSupabase({
+    workflowDrafts: [createWorkflowDraftRow({
+      nodes: [
+        createNode('trigger-1', 'trigger.lead_added_to_campaign', 'Trigger'),
+        createNode('approval-1', 'wait.wait_for_approval', 'Wait'),
+        createNode('team-1', 'action.create_team_decision', 'Action'),
+      ],
+      edges: [
+        { id: 'edge-1', source: 'trigger-1', target: 'approval-1', label: '' },
+        { id: 'edge-2', source: 'approval-1', target: 'team-1', label: '' },
+      ],
+    })],
+  })
+
+  const pausedExecution = await startAndRun(supabase)
+  const resumedExecution = await resumeExecution(supabase, pausedExecution.id)
+
+  assert.equal(pausedExecution.status, 'paused')
+  assert.equal(resumedExecution.status, 'completed')
+  assert.deepEqual(resumedExecution.steps.map((step) => step.nodeId), ['trigger-1', 'approval-1', 'team-1'])
+  assert.equal(resumedExecution.steps[1].status, 'completed')
+  assert.equal(resumedExecution.steps[1].output.approved, true)
+  assert.equal(resumedExecution.steps[2].typeKey, 'action.create_team_decision')
+})
+
+test('resume can complete remaining safe mock email and wait steps', async () => {
+  env.emailSend.mode = 'mock'
+  env.emailSend.liveApproved = false
+  const supabase = createMockSupabase({
+    workflowDrafts: [createWorkflowDraftRow({
+      nodes: [
+        createNode('trigger-1', 'trigger.lead_added_to_campaign', 'Trigger'),
+        createNode('approval-1', 'wait.wait_for_approval', 'Wait'),
+        createNode('send-1', 'action.send_approved_email', 'Action'),
+        createNode('wait-1', 'wait.wait_days', 'Wait', { duration: '2', unit: 'days' }),
+      ],
+      edges: [
+        { id: 'edge-1', source: 'trigger-1', target: 'approval-1', label: '' },
+        { id: 'edge-2', source: 'approval-1', target: 'send-1', label: '' },
+        { id: 'edge-3', source: 'send-1', target: 'wait-1', label: '' },
+      ],
+    })],
+  })
+
+  const pausedExecution = await startAndRun(supabase)
+  const resumedExecution = await resumeExecution(supabase, pausedExecution.id)
+  const sendStep = resumedExecution.steps.find((step) => step.typeKey === 'action.send_approved_email')
+  const waitStep = resumedExecution.steps.find((step) => step.typeKey === 'wait.wait_days')
+
+  assert.equal(resumedExecution.status, 'completed')
+  assert.equal(sendStep.status, 'completed')
+  assert.equal(sendStep.output.message, 'Approved email simulated. No real email sent.')
+  assert.equal(waitStep.output.message, 'Simulated wait')
+})
+
+test('resume respects condition.replyReceived branch', async () => {
+  const supabase = createMockSupabase({
+    workflowDrafts: [createWorkflowDraftRow({
+      nodes: [
+        createNode('trigger-1', 'trigger.lead_added_to_campaign', 'Trigger'),
+        createNode('approval-1', 'wait.wait_for_approval', 'Wait'),
+        createNode('condition-1', 'condition.reply_received', 'Condition'),
+        createNode('team-1', 'action.create_team_decision', 'Action'),
+        createNode('follow-up-1', 'action.create_follow_up_draft', 'Action'),
+      ],
+      edges: [
+        { id: 'edge-1', source: 'trigger-1', target: 'approval-1', label: '' },
+        { id: 'edge-2', source: 'approval-1', target: 'condition-1', label: '' },
+        { id: 'edge-3', source: 'condition-1', target: 'team-1', label: 'Yes' },
+        { id: 'edge-4', source: 'condition-1', target: 'follow-up-1', label: 'No' },
+      ],
+    })],
+  })
+
+  const pausedExecution = await startAndRun(supabase, { context: { replyReceived: false } })
+  const resumedExecution = await resumeExecution(supabase, pausedExecution.id, { replyReceived: true })
+
+  assert.equal(resumedExecution.status, 'completed')
+  assert.deepEqual(resumedExecution.steps.map((step) => step.nodeId), [
+    'trigger-1',
+    'approval-1',
+    'condition-1',
+    'team-1',
+  ])
+  assert.equal(resumedExecution.steps[2].output.selectedBranch, 'Yes')
+})
+
+test('resume does not bypass real email safety', async () => {
+  env.emailSend.mode = 'mock'
+  env.emailSend.liveApproved = false
+  const supabase = createMockSupabase({
+    workflowDrafts: [createWorkflowDraftRow({
+      nodes: [
+        createNode('trigger-1', 'trigger.lead_added_to_campaign', 'Trigger'),
+        createNode('approval-1', 'wait.wait_for_approval', 'Wait'),
+        createNode('send-1', 'action.send_approved_email', 'Action'),
+      ],
+      edges: [
+        { id: 'edge-1', source: 'trigger-1', target: 'approval-1', label: '' },
+        { id: 'edge-2', source: 'approval-1', target: 'send-1', label: '' },
+      ],
+    })],
+  })
+
+  const pausedExecution = await startAndRun(supabase)
+  const resumedExecution = await resumeExecution(supabase, pausedExecution.id)
+  const sendStep = resumedExecution.steps.find((step) => step.typeKey === 'action.send_approved_email')
+
+  assert.equal(sendStep.status, 'completed')
+  assert.equal(sendStep.output.realSendingEnabled, false)
+  assert.equal(sendStep.output.message, 'Approved email simulated. No real email sent.')
   assert.equal(supabase.calls.some((call) => call[1] === 'sent_emails'), false)
   assert.equal(supabase.calls.some((call) => call[1] === 'email_accounts'), false)
 })

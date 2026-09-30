@@ -55,6 +55,7 @@ import {
   createWorkflowDraft,
   deleteWorkflowDraft,
   getWorkflowDrafts,
+  resumeWorkflowExecution,
   runWorkflowDraft,
   updateWorkflowDraft,
   validateWorkflowSchema,
@@ -329,6 +330,7 @@ function WorkflowBuilderContent({ onNavigate }) {
   const [workflowExecution, setWorkflowExecution] = useState(null)
   const [workflowExecutionError, setWorkflowExecutionError] = useState('')
   const [isWorkflowExecutionLoading, setIsWorkflowExecutionLoading] = useState(false)
+  const [isWorkflowResumeLoading, setIsWorkflowResumeLoading] = useState(false)
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || null,
@@ -982,6 +984,28 @@ function WorkflowBuilderContent({ onNavigate }) {
     }
   }
 
+  async function handleResumeWorkflow() {
+    if (!workflowExecution?.id || workflowExecution.status !== 'paused') return
+
+    setIsWorkflowResumeLoading(true)
+    setWorkflowExecutionError('')
+
+    try {
+      const execution = await resumeWorkflowExecution(workflowExecution.id, {
+        context: {
+          demo: true,
+          replyReceived: false,
+        },
+      })
+      setWorkflowExecution(execution)
+      setMessage('Workflow execution resumed with status: ' + execution.status + '.')
+    } catch (error) {
+      setWorkflowExecutionError(error.message || 'Could not resume workflow execution.')
+    } finally {
+      setIsWorkflowResumeLoading(false)
+    }
+  }
+
   function handleCenterView() {
     flowInstance?.fitView({ padding: 0.2, duration: 500 })
   }
@@ -1441,6 +1465,8 @@ function WorkflowBuilderContent({ onNavigate }) {
             error={workflowExecutionError}
             execution={workflowExecution}
             isLoading={isWorkflowExecutionLoading}
+            isResumeLoading={isWorkflowResumeLoading}
+            onResume={handleResumeWorkflow}
           />
         </Modal>
       ) : null}
@@ -1481,7 +1507,7 @@ function WorkflowSummaryCards({ summary }) {
   )
 }
 
-function ExecutionResult({ error, execution, isLoading }) {
+function ExecutionResult({ error, execution, isLoading, isResumeLoading, onResume }) {
   if (isLoading) {
     return (
       <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-700">
@@ -1513,6 +1539,17 @@ function ExecutionResult({ error, execution, isLoading }) {
         <span className="text-sm font-medium text-slate-600">
           {steps.length} step{steps.length === 1 ? '' : 's'}
         </span>
+        {execution.status === 'paused' ? (
+          <button
+            className="ml-auto inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={onResume}
+            disabled={isResumeLoading}
+          >
+            <PlayCircle className="h-4 w-4" aria-hidden="true" />
+            {isResumeLoading ? 'Resuming...' : 'Resume Workflow'}
+          </button>
+        ) : null}
       </div>
       {execution.errorMessage ? (
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm font-medium text-red-700">

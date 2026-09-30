@@ -314,6 +314,13 @@ function selectNextNodeId(node, outgoing, context) {
   return outgoing[0].target
 }
 
+function mergeExecutionContext(existingContext, resumeContext) {
+  return {
+    ...normalizeObject(existingContext),
+    ...normalizeObject(resumeContext),
+  }
+}
+
 function executeNode(node, input) {
   switch (node.typeKey) {
     case 'trigger.lead_added_to_campaign':
@@ -359,8 +366,9 @@ function executeNode(node, input) {
         output: {
           emailSendMode: emailStatus.mode,
           realSendingEnabled: false,
-          message: emailStatus.message,
-          result: 'Mock completed. No real email was sent.',
+          message: 'Approved email simulated. No real email sent.',
+          safetyMessage: emailStatus.message,
+          result: 'Approved email simulated. No real email sent.',
         },
       }
     }
@@ -422,23 +430,10 @@ export async function startWorkflowExecution(payload = {}, context = {}) {
   return mapExecution(execution)
 }
 
-export async function runWorkflowExecution({ executionId } = {}, context = {}) {
-  if (!executionId) {
-    throw createHttpError('executionId is required.')
-  }
-
-  const supabase = getClient(context)
-  const workspaceId = getWorkspaceId(context)
-  let execution = await getExecutionRow(supabase, executionId, workspaceId)
-
-  if (!['running', 'paused'].includes(execution.status)) {
-    return getExecutionWithSteps(supabase, executionId, workspaceId)
-  }
-
-  const draft = await getWorkflowDraftById(supabase, execution.workflow_draft_id, workspaceId)
-  const graph = buildGraph(draft)
-  let currentNodeId = execution.current_node_id || graph.startNode.id
-  const visited = new Set()
+async function runExecutionFromNode({ supabase, workspaceId, execution, graph, startNodeId, visitedNodeIds = [] }) {
+  let currentExecution = execution
+  let currentNodeId = startNodeId
+  const visited = new Set(visitedNodeIds)
 
   try {
     while (currentNodeId) {
@@ -452,19 +447,19 @@ export async function runWorkflowExecution({ executionId } = {}, context = {}) {
         throw createHttpError(`Workflow node ${currentNodeId} was not found in draft.`, 400)
       }
 
-      execution = await updateExecution(supabase, executionId, {
+      currentExecution = await updateExecution(supabase, currentExecution.id, {
         status: 'running',
         current_node_id: node.id,
         error_message: null,
       }, workspaceId)
 
       const input = {
-        context: execution.context || {},
-        leadId: execution.lead_id,
-        campaignId: execution.campaign_id,
+        context: currentExecution.context || {},
+        leadId: currentExecution.lead_id,
+        campaignId: currentExecution.campaign_id,
         settings: node.settings || {},
       }
-      const step = await insertStep(supabase, executionId, node, input)
+      const step = await insertStep(supabase, currentExecution.id, node, input)
       const result = executeNode(node, input)
       await updateStep(supabase, step.id, {
         status: result.status,
@@ -474,27 +469,27 @@ export async function runWorkflowExecution({ executionId } = {}, context = {}) {
       })
 
       if (result.status === 'paused') {
-        await updateExecution(supabase, executionId, {
+        await updateExecution(supabase, currentExecution.id, {
           status: 'paused',
           current_node_id: node.id,
           completed_at: null,
           error_message: null,
         }, workspaceId)
-        return getExecutionWithSteps(supabase, executionId, workspaceId)
+        return getExecutionWithSteps(supabase, currentExecution.id, workspaceId)
       }
 
       const outgoing = graph.outgoingByNodeId.get(node.id) || []
-      currentNodeId = selectNextNodeId(node, outgoing, execution.context || {})
+      currentNodeId = selectNextNodeId(node, outgoing, currentExecution.context || {})
     }
 
-    await updateExecution(supabase, executionId, {
+    await updateExecution(supabase, currentExecution.id, {
       status: 'completed',
       current_node_id: null,
       completed_at: new Date().toISOString(),
       error_message: null,
     }, workspaceId)
   } catch (error) {
-    await updateExecution(supabase, executionId, {
+    await updateExecution(supabase, currentExecution.id, {
       status: 'failed',
       error_message: error.message,
       completed_at: new Date().toISOString(),
@@ -502,7 +497,103 @@ export async function runWorkflowExecution({ executionId } = {}, context = {}) {
     throw error
   }
 
-  return getExecutionWithSteps(supabase, executionId, workspaceId)
+  return getExecutionWithSteps(supabase, currentExecution.id, workspaceId)
+}
+
+async function markApprovalWaitResumed(supabase, executionId, currentNodeId) {
+  const steps = await listStepRows(supabase, executionId)
+  const approvalStep = [...steps]
+    .reverse()
+    .find((step) => step.node_id === currentNodeId && step.type_key === 'wait.wait_for_approval' && step.status === 'paused')
+
+  if (!approvalStep) return
+
+  await updateStep(supabase, approvalStep.id, {
+    status: 'completed',
+    output: {
+      ...(approvalStep.output || {}),
+      approved: true,
+      resumed: true,
+      message: 'Approval received. Workflow resumed.',
+    },
+    error_message: null,
+    completed_at: new Date().toISOString(),
+  })
+}
+
+export async function runWorkflowExecution({ executionId } = {}, context = {}) {
+  if (!executionId) {
+    throw createHttpError('executionId is required.')
+  }
+
+  const supabase = getClient(context)
+  const workspaceId = getWorkspaceId(context)
+  const execution = await getExecutionRow(supabase, executionId, workspaceId)
+
+  if (execution.status !== 'running') {
+    return getExecutionWithSteps(supabase, executionId, workspaceId)
+  }
+
+  const draft = await getWorkflowDraftById(supabase, execution.workflow_draft_id, workspaceId)
+  const graph = buildGraph(draft)
+
+  return runExecutionFromNode({
+    supabase,
+    workspaceId,
+    execution,
+    graph,
+    startNodeId: execution.current_node_id || graph.startNode.id,
+  })
+}
+
+export async function resumeWorkflowExecution({ executionId, context: resumeContext = {} } = {}, context = {}) {
+  if (!executionId) {
+    throw createHttpError('executionId is required.')
+  }
+
+  const supabase = getClient(context)
+  const workspaceId = getWorkspaceId(context)
+  let execution = await getExecutionRow(supabase, executionId, workspaceId)
+
+  if (execution.status !== 'paused') {
+    throw createHttpError('Only paused workflow executions can be resumed.', 400)
+  }
+
+  const draft = await getWorkflowDraftById(supabase, execution.workflow_draft_id, workspaceId)
+  const graph = buildGraph(draft)
+  const currentNodeId = execution.current_node_id
+  const currentNode = graph.nodeById.get(currentNodeId)
+
+  if (!currentNode) {
+    throw createHttpError('Paused workflow current node was not found in draft.', 400)
+  }
+
+  const mergedContext = mergeExecutionContext(execution.context || {}, resumeContext)
+  execution = await updateExecution(supabase, executionId, {
+    status: 'running',
+    context: mergedContext,
+    completed_at: null,
+    error_message: null,
+  }, workspaceId)
+
+  let startNodeId = currentNodeId
+  const visitedNodeIds = []
+
+  if (currentNode.typeKey === 'wait.wait_for_approval') {
+    await markApprovalWaitResumed(supabase, executionId, currentNodeId)
+    visitedNodeIds.push(currentNodeId)
+    const outgoing = graph.outgoingByNodeId.get(currentNodeId) || []
+    startNodeId = selectNextNodeId(currentNode, outgoing, mergedContext)
+  }
+
+  return runExecutionFromNode({
+    supabase,
+    workspaceId,
+    execution,
+    graph,
+    startNodeId,
+    visitedNodeIds,
+  })
 }
 
 export async function getWorkflowExecution(executionId, context = {}) {

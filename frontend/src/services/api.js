@@ -726,6 +726,19 @@ export async function getWorkflowExecution(executionId) {
   return payload.data
 }
 
+export async function resumeWorkflowExecution(executionId, payload = {}) {
+  const response = await fetch(API_BASE_URL + '/api/workflow-executions/' + executionId + '/resume', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+
+  const parsedPayload = await parseApiResponse(response)
+  return parsedPayload.data
+}
+
 export async function getTeamMembers() {
   const response = await fetch(`${API_BASE_URL}/api/team-members`)
 

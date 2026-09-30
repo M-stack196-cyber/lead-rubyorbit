@@ -1,5 +1,6 @@
 import {
   getWorkflowExecution,
+  resumeWorkflowExecution,
   runWorkflowExecution,
   startWorkflowExecution,
 } from './workflowExecutions.service.js'
@@ -38,6 +39,20 @@ export async function getWorkflowExecutionController(req, res, next) {
     res.json({
       message: 'Workflow execution fetched successfully.',
       data: await getWorkflowExecution(req.params.id, getRequestContext(req)),
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function resumeWorkflowExecutionController(req, res, next) {
+  try {
+    res.json({
+      message: 'Workflow execution resumed successfully.',
+      data: await resumeWorkflowExecution({
+        executionId: req.params.id,
+        context: req.body?.context || {},
+      }, getRequestContext(req)),
     })
   } catch (error) {
     next(error)
