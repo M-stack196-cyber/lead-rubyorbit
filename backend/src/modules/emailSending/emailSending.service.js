@@ -420,6 +420,31 @@ function findPreviousWorkflowDraft(previousSteps = []) {
     .find((step) => ['action.create_ai_draft', 'action.create_follow_up_draft'].includes(step.type_key || step.typeKey))
 }
 
+function getPreviousWorkflowDraftId({ context = {}, previousSteps = [] } = {}) {
+  if (context.emailDraftId) return context.emailDraftId
+
+  const draftStep = findPreviousWorkflowDraft(previousSteps)
+  return draftStep?.output?.emailDraftId || null
+}
+
+async function getWorkflowPersistedDraft(supabase, { draftId, workspaceId } = {}) {
+  if (!draftId) return null
+
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_drafts').select(draftSelect),
+    workspaceId,
+  )
+    .eq('id', draftId)
+    .single()
+
+  if (error) {
+    if (error.code === 'PGRST116') return null
+    throw createHttpError(error.message, 500)
+  }
+
+  return data
+}
+
 function getWorkflowEmailContent({ context = {}, previousSteps = [], settings = {} }) {
   const subject = context.subject || context.emailSubject || settings.subject
   const body = context.body || context.emailBody || settings.body
@@ -530,7 +555,18 @@ export async function sendWorkflowApprovedEmail({
   sender = sendGmailMessage,
 } = {}) {
   const emailStatus = getEmailSendingStatus()
-  const content = getWorkflowEmailContent({ context, previousSteps, settings })
+  const persistedDraft = await getWorkflowPersistedDraft(supabase, {
+    draftId: getPreviousWorkflowDraftId({ context, previousSteps }),
+    workspaceId,
+  })
+  const content = persistedDraft
+    ? {
+        source: 'email_draft',
+        emailDraftId: persistedDraft.id,
+        subject: String(persistedDraft.subject || '').trim(),
+        body: String(persistedDraft.body || '').trim(),
+      }
+    : getWorkflowEmailContent({ context, previousSteps, settings })
   const lead = await getLeadRecipient(supabase, leadId || context.leadId, workspaceId)
   const recipient = getWorkflowRecipient({ context, lead })
   const approvalPresent = hasWorkflowApproval({ context, previousSteps })
@@ -546,6 +582,7 @@ export async function sendWorkflowApprovedEmail({
         realSendingEnabled: false,
         toEmail: recipient.email || null,
         subject: content.subject || null,
+        emailDraftId: content.emailDraftId || null,
       },
     }
   }
@@ -585,10 +622,10 @@ export async function sendWorkflowApprovedEmail({
   validateLiveEmailAccount(account)
 
   const draft = {
-    id: context.emailDraftId || null,
-    campaign_id: campaignId || context.campaignId || null,
-    lead_id: leadId || context.leadId || null,
-    campaign_lead_id: context.campaignLeadId || null,
+    id: content.emailDraftId || context.emailDraftId || null,
+    campaign_id: persistedDraft?.campaign_id || campaignId || context.campaignId || null,
+    lead_id: persistedDraft?.lead_id || leadId || context.leadId || null,
+    campaign_lead_id: persistedDraft?.campaign_lead_id || context.campaignLeadId || null,
     subject: content.subject,
     body: content.body,
     status: 'approved',
@@ -642,6 +679,20 @@ export async function sendWorkflowApprovedEmail({
     throw createHttpError(insertError.message, insertError.code === '23505' ? 409 : 500)
   }
 
+  if (draft.id) {
+    const { error: draftUpdateError } = await scopeWorkspace(
+      supabase.from('email_drafts').update({ status: 'sent' }),
+      workspaceId,
+    )
+      .eq('id', draft.id)
+      .select('id')
+      .maybeSingle()
+
+    if (draftUpdateError) {
+      throw createHttpError(draftUpdateError.message, 500)
+    }
+  }
+
   return {
     status: 'completed',
     output: {
@@ -650,6 +701,7 @@ export async function sendWorkflowApprovedEmail({
       emailSendMode: emailStatus.mode,
       realSendingEnabled: true,
       sentEmailId: data.id,
+      emailDraftId: draft.id || null,
       emailAccountId: account.id,
       provider: account.provider,
       toEmail: recipient.email,

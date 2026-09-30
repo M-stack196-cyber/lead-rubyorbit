@@ -10,6 +10,7 @@ const workflowDraftSelect = `
   workspace_id,
   name,
   status,
+  is_active,
   mode,
   nodes,
   edges,
@@ -81,6 +82,10 @@ function normalizeStatus(status = 'draft') {
   return status
 }
 
+function normalizeIsActive(isActive = false) {
+  return Boolean(isActive)
+}
+
 function normalizeMode(mode = 'visual-only') {
   if (!allowedModes.has(mode)) {
     throw createHttpError('Workflow mode must be visual-only.')
@@ -101,6 +106,7 @@ function normalizeCreatePayload(payload = {}) {
   return {
     name: normalizeName(payload.name),
     status: normalizeStatus(payload.status),
+    is_active: normalizeIsActive(payload.isActive),
     mode: normalizeMode(payload.mode),
     nodes: normalizeArray(payload.nodes, 'nodes'),
     edges: normalizeArray(payload.edges, 'edges'),
@@ -118,6 +124,10 @@ function normalizeUpdatePayload(payload = {}) {
 
   if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
     updates.status = normalizeStatus(payload.status)
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, 'isActive')) {
+    updates.is_active = normalizeIsActive(payload.isActive)
   }
 
   if (Object.prototype.hasOwnProperty.call(payload, 'mode')) {
@@ -153,6 +163,7 @@ function mapWorkflowDraft(row) {
     workspaceId: row.workspace_id,
     name: row.name,
     status: row.status,
+    isActive: Boolean(row.is_active),
     mode: row.mode,
     nodes: row.nodes || [],
     edges: row.edges || [],

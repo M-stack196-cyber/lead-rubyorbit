@@ -303,6 +303,8 @@ function WorkflowBuilderContent({ onNavigate }) {
   const backendCompatibilitySnapshotRef = useRef(null)
   const [workflowName, setWorkflowName] = useState(defaultWorkflowName)
   const [workflowDraftId, setWorkflowDraftId] = useState('')
+  const [workflowDraftIsActive, setWorkflowDraftIsActive] = useState(false)
+  const [isWorkflowActivationLoading, setIsWorkflowActivationLoading] = useState(false)
   const [nodes, setNodes] = useState(() => createSampleNodes())
   const [edges, setEdges] = useState(() => createSampleEdges())
   const [selectedNodeId, setSelectedNodeId] = useState('sample-trigger')
@@ -446,6 +448,7 @@ function WorkflowBuilderContent({ onNavigate }) {
 
     runWithoutDirty(() => {
       setWorkflowDraftId(draft.id || draft.workflowDraftId || '')
+      setWorkflowDraftIsActive(Boolean(draft.isActive))
       setWorkflowName(draft.name || draft.workflowName || defaultWorkflowName)
       setNodes(draftNodes)
       setEdges(nextEdges)
@@ -600,6 +603,7 @@ function WorkflowBuilderContent({ onNavigate }) {
           summary: getWorkflowSummary(draft.nodes || [], draft.edges || []),
         }),
         validationStatus: draft.validationStatus || 'Warning',
+        isActive: Boolean(draft.isActive),
       }),
       id: draft.id,
       workflowDraftId: draft.id,
@@ -613,6 +617,7 @@ function WorkflowBuilderContent({ onNavigate }) {
 
     runWithoutDirty(() => {
       setWorkflowDraftId('')
+      setWorkflowDraftIsActive(false)
       setWorkflowName(defaultWorkflowName)
       setNodes(nextNodes)
       setEdges(nextEdges)
@@ -650,6 +655,7 @@ function WorkflowBuilderContent({ onNavigate }) {
           summary: getWorkflowSummary(copiedNodes, copiedEdges),
         }),
         validationStatus: draft.validationStatus || 'Warning',
+        isActive: false,
       }))
 
       setWorkflowDrafts((currentDrafts) => [copiedDraft, ...currentDrafts])
@@ -867,6 +873,7 @@ function WorkflowBuilderContent({ onNavigate }) {
       edges: nextEdges,
       summary: nextSummarySnapshot,
       validationStatus: nextValidationResult.status,
+      isActive: workflowDraftIsActive,
     })
 
     runWithoutDirty(() => {
@@ -880,6 +887,11 @@ function WorkflowBuilderContent({ onNavigate }) {
       const nextWorkflowDraftId = savedDraft.id || workflowDraftId
 
       setWorkflowDraftId(nextWorkflowDraftId)
+      setWorkflowDraftIsActive(Boolean(savedDraft.isActive))
+      setWorkflowDrafts((currentDrafts) => {
+        const withoutSaved = currentDrafts.filter((draft) => draft.id !== nextWorkflowDraftId)
+        return [savedDraft, ...withoutSaved]
+      })
       writeLocalDraft({
         ...payload,
         id: nextWorkflowDraftId,
@@ -959,6 +971,26 @@ function WorkflowBuilderContent({ onNavigate }) {
 
   function handleRunTest() {
     setActiveModal('test')
+  }
+
+  async function handleToggleWorkflowActive() {
+    if (!workflowDraftId || isDirty || isWorkflowActivationLoading) return
+
+    setIsWorkflowActivationLoading(true)
+    setWorkflowExecutionError('')
+
+    try {
+      const savedDraft = await updateWorkflowDraft(workflowDraftId, { isActive: !workflowDraftIsActive })
+      setWorkflowDraftIsActive(Boolean(savedDraft.isActive))
+      setWorkflowDrafts((currentDrafts) => currentDrafts.map((draft) => (
+        draft.id === savedDraft.id ? savedDraft : draft
+      )))
+      setMessage(savedDraft.isActive ? 'Workflow activated for automatic lead-campaign triggers.' : 'Workflow deactivated. Automatic triggers are off.')
+    } catch (error) {
+      setMessage(error.message || 'Could not update workflow activation.')
+    } finally {
+      setIsWorkflowActivationLoading(false)
+    }
   }
 
   async function handleRunWorkflow() {
@@ -1073,6 +1105,7 @@ function WorkflowBuilderContent({ onNavigate }) {
   const savedBackendCompatibilityStatus = !isDirty ? getBackendCompatibilityStatusFromSummary(savedSummarySnapshot) : ''
   const savedBackendValidatedAt = !isDirty ? getBackendValidatedAtFromSummary(savedSummarySnapshot) : ''
   const canRunSavedWorkflow = Boolean(workflowDraftId && !isDirty)
+  const canToggleWorkflowActivation = Boolean(workflowDraftId && !isDirty)
 
   useEffect(() => {
     const checkedSchemaJson = backendCompatibilitySnapshotRef.current?.schemaJson || backendCompatibilitySchemaJson
@@ -1195,6 +1228,22 @@ function WorkflowBuilderContent({ onNavigate }) {
             <PlayCircle className="h-4 w-4" aria-hidden="true" />
             Preview
           </button>
+          {workflowDraftId ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className={workflowDraftIsActive ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-600'}>
+                {workflowDraftIsActive ? 'Active' : 'Inactive'}
+              </Badge>
+              <button
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 shadow-sm transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                onClick={handleToggleWorkflowActive}
+                disabled={!canToggleWorkflowActivation || isWorkflowActivationLoading}
+              >
+                <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                {isWorkflowActivationLoading ? 'Updating...' : workflowDraftIsActive ? 'Deactivate' : 'Activate'}
+              </button>
+            </div>
+          ) : null}
           {canRunSavedWorkflow ? (
             <div className="flex flex-wrap items-center gap-2">
               <label className="min-w-64 flex-1 xl:max-w-xs">
@@ -1749,7 +1798,7 @@ function DraftManager({ actionDraftId, currentDraftId, drafts, error, isLoading,
         <div className="max-h-[56vh] overflow-auto rounded-md border border-slate-200">
           <div className="min-w-[900px] divide-y divide-slate-200">
             {filteredDrafts.map((draft) => (
-              <div className="grid gap-3 bg-white p-4 transition hover:bg-slate-50 lg:grid-cols-[minmax(13rem,1.4fr)_0.55fr_0.65fr_0.85fr_0.85fr_0.75fr_auto]" key={draft.id}>
+              <div className="grid gap-3 bg-white p-4 transition hover:bg-slate-50 lg:grid-cols-[minmax(13rem,1.3fr)_0.5fr_0.55fr_0.65fr_0.8fr_0.8fr_0.7fr_auto]" key={draft.id}>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="truncate text-sm font-semibold text-slate-950">{draft.name || 'Untitled Workflow'}</p>
@@ -1762,6 +1811,7 @@ function DraftManager({ actionDraftId, currentDraftId, drafts, error, isLoading,
                   <p className="mt-1 text-xs text-slate-500">Updated {formatDraftDate(draft.updatedAt)}</p>
                 </div>
                 <DraftMeta label="Status" value={draft.status || 'draft'} />
+                <DraftMeta label="Activation" value={draft.isActive ? 'Active' : 'Inactive'} />
                 <DraftMeta label="Schema" value={draft.mode || 'visual-only'} />
                 <DraftMeta label="Validation" value={draft.validationStatus || 'Warning'} />
                 <DraftMeta label="Local compat" value={getDraftLocalCompatibilityStatus(draft)} />
@@ -2607,10 +2657,11 @@ function pickWorkflowValidationSummary(summary = {}) {
   }
 }
 
-function createWorkflowDraftPayload({ workflowName, nodes, edges, summary, validationStatus }) {
+function createWorkflowDraftPayload({ workflowName, nodes, edges, summary, validationStatus, isActive = false }) {
   return {
     name: String(workflowName || defaultWorkflowName).trim() || defaultWorkflowName,
     status: 'draft',
+    isActive: Boolean(isActive),
     mode: 'visual-only',
     nodes: normalizeSavedNodes(nodes),
     edges,

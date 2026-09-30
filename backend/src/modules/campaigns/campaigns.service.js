@@ -4,6 +4,7 @@ import {
   scopeWorkspace,
   withWorkspaceFields,
 } from '../../middleware/workspace.js'
+import { triggerLeadAddedToCampaignWorkflows } from '../workflowExecutions/workflowExecutions.service.js'
 
 const allowedStatuses = new Set(['draft', 'active', 'paused', 'completed', 'archived'])
 const allowedLeadOutreachStatuses = new Set(['pending', 'paused', 'stopped'])
@@ -49,6 +50,57 @@ function mapCampaignWithLeadCount(campaign, countsByCampaignId = new Map()) {
     ...campaign,
     leadCount: countsByCampaignId.get(campaign.id) || 0,
   }
+}
+
+async function writeWorkflowAutoTriggerAudit(supabase, { workspaceId, campaignId, leadId, workflowDraftId, executionId }) {
+  try {
+    await supabase.from('audit_logs').insert(withWorkspaceFields({
+      actor_id: null,
+      action: 'workflow_execution.auto_trigger',
+      entity_type: 'workflow_execution',
+      entity_id: executionId || null,
+      metadata: {
+        trigger: 'lead_added_to_campaign',
+        campaignId,
+        leadId,
+        workflowDraftId,
+      },
+    }, workspaceId))
+  } catch (error) {
+    console.warn('Failed to write workflow auto-trigger audit:', error.message)
+  }
+}
+
+async function triggerWorkflowsForInsertedCampaignLeads(supabase, insertedRows, workspaceId) {
+  const executions = []
+
+  for (const row of insertedRows || []) {
+    try {
+      const rowExecutions = await triggerLeadAddedToCampaignWorkflows({
+        leadId: row.lead_id,
+        campaignId: row.campaign_id,
+      }, {
+        supabase,
+        workspaceId,
+      })
+
+      executions.push(...rowExecutions)
+
+      for (const execution of rowExecutions) {
+        await writeWorkflowAutoTriggerAudit(supabase, {
+          workspaceId,
+          campaignId: row.campaign_id,
+          leadId: row.lead_id,
+          workflowDraftId: execution.workflowDraftId,
+          executionId: execution.id,
+        })
+      }
+    } catch (error) {
+      console.warn('Workflow auto-trigger skipped:', error.message)
+    }
+  }
+
+  return executions
 }
 
 export async function listCampaigns() {
@@ -286,12 +338,16 @@ export async function addLeadsToCampaign(campaignId, leadIds = []) {
     throw error
   }
 
+  const autoTriggeredExecutions = await triggerWorkflowsForInsertedCampaignLeads(supabase, insertedRows, workspaceId)
+
   return {
     campaignId,
     addedCount: insertedRows.length,
     skippedCount: uniqueLeadIds.length - insertedRows.length,
     addedLeadIds: insertedRows.map((row) => row.lead_id),
     skippedLeadIds: uniqueLeadIds.filter((leadId) => !insertedRows.some((row) => row.lead_id === leadId)),
+    autoTriggeredExecutionCount: autoTriggeredExecutions.length,
+    autoTriggeredExecutionIds: autoTriggeredExecutions.map((execution) => execution.id),
   }
 }
 

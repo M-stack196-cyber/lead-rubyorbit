@@ -8,6 +8,7 @@ import {
   resumeWorkflowExecution,
   runWorkflowExecution,
   startWorkflowExecution,
+  triggerLeadAddedToCampaignWorkflows,
 } from '../src/modules/workflowExecutions/workflowExecutions.service.js'
 
 afterEach(() => {
@@ -23,6 +24,7 @@ function createWorkflowDraftRow(overrides = {}) {
     name: 'Execution Workflow',
     status: 'draft',
     mode: 'visual-only',
+    is_active: false,
     nodes: [
       createNode('trigger-1', 'trigger.lead_added_to_campaign', 'Trigger'),
       createNode('draft-1', 'action.create_ai_draft', 'Action'),
@@ -64,6 +66,51 @@ function createLeadRow(overrides = {}) {
   }
 }
 
+function createCampaignLeadRow(overrides = {}) {
+  return {
+    id: 'campaign-lead-1',
+    workspace_id: 'workspace-1',
+    campaign_id: 'campaign-1',
+    lead_id: 'lead-1',
+    campaigns: {
+      id: 'campaign-1',
+      name: 'Growth Campaign',
+      description: 'book meetings with qualified operators',
+    },
+    leads: {
+      id: 'lead-1',
+      name: 'Workflow Lead',
+      email: 'lead@example.com',
+      company: 'Example Co',
+    },
+    ...overrides,
+  }
+}
+
+function createEmailDraftRow(overrides = {}) {
+  return {
+    id: 'email-draft-1',
+    workspace_id: 'workspace-1',
+    campaign_id: 'campaign-1',
+    lead_id: 'lead-1',
+    campaign_lead_id: 'campaign-lead-1',
+    type: 'primary',
+    subject: 'Persisted subject',
+    body: 'Persisted body',
+    status: 'pending_approval',
+    ai_generated: true,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    leads: {
+      id: 'lead-1',
+      name: 'Workflow Lead',
+      email: 'lead@example.com',
+      company: 'Example Co',
+    },
+    ...overrides,
+  }
+}
+
 function createEmailAccountRow(overrides = {}) {
   return {
     id: 'account-1',
@@ -92,16 +139,22 @@ function createEmailAccountRow(overrides = {}) {
 
 function createMockSupabase({
   workflowDrafts = [createWorkflowDraftRow()],
+  workflowExecutions = [],
+  campaignLeads = [],
+  emailDrafts = [],
   leads = [],
   emailAccounts = [],
 } = {}) {
   const tables = {
     workflow_drafts: [...workflowDrafts],
-    workflow_executions: [],
+    workflow_executions: [...workflowExecutions],
     workflow_execution_steps: [],
+    campaign_leads: [...campaignLeads],
+    email_drafts: [...emailDrafts],
     leads: [...leads],
     email_accounts: [...emailAccounts],
     sent_emails: [],
+    audit_logs: [],
   }
   const calls = []
   let sequence = 1
@@ -161,9 +214,18 @@ function createMockSupabase({
       },
     }
 
+    function fieldValue(row, field) {
+      if (field.includes('->>')) {
+        const [jsonField, jsonKey] = field.split('->>')
+        return row[jsonField]?.[jsonKey]
+      }
+
+      return row[field]
+    }
+
     function matches(row) {
-      return state.filters.every(([field, value]) => row[field] === value)
-        && state.ltFilters.every(([field, value]) => Number(row[field] || 0) < Number(value))
+      return state.filters.every(([field, value]) => fieldValue(row, field) === value)
+        && state.ltFilters.every(([field, value]) => Number(fieldValue(row, field) || 0) < Number(value))
     }
 
     function defaultsForInsert(values) {
@@ -207,6 +269,16 @@ function createMockSupabase({
         }
       }
 
+      if (table === 'email_drafts') {
+        return {
+          id: nextId('email-draft'),
+          status: 'pending_approval',
+          created_at: now(),
+          updated_at: now(),
+          ...values,
+        }
+      }
+
       return { id: nextId('row'), created_at: now(), updated_at: now(), ...values }
     }
 
@@ -233,6 +305,12 @@ function createMockSupabase({
 
     function executeSingle() {
       if (state.insertValues) {
+        if (Array.isArray(state.insertValues)) {
+          const rows = state.insertValues.map((value) => defaultsForInsert(value))
+          tables[table].push(...rows)
+          return { data: rows, error: null }
+        }
+
         const row = defaultsForInsert(state.insertValues)
         tables[table].push(row)
         return { data: row, error: null }
@@ -835,4 +913,143 @@ test('workflow direct send requires recorded approval before live sending', asyn
   assert.equal(senderCalls, 0)
   assert.equal(sendStep.output.emailStatus, 'blocked')
   assert.equal(sendStep.output.blockedReasons.includes('Workflow approval has not been recorded.'), true)
+})
+
+test('inactive workflow does not auto-trigger when lead is added to campaign', async () => {
+  const supabase = createMockSupabase({
+    workflowDrafts: [createWorkflowDraftRow({ is_active: false })],
+    leads: [createLeadRow()],
+    campaignLeads: [createCampaignLeadRow()],
+  })
+
+  const executions = await triggerLeadAddedToCampaignWorkflows({
+    leadId: 'lead-1',
+    campaignId: 'campaign-1',
+  }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+
+  assert.equal(executions.length, 0)
+  assert.equal(supabase.tables.workflow_executions.length, 0)
+  assert.equal(supabase.tables.email_drafts.length, 0)
+})
+
+test('active workflow auto-triggers when lead is added to campaign', async () => {
+  const supabase = createMockSupabase({
+    workflowDrafts: [createWorkflowDraftRow({ is_active: true })],
+    leads: [createLeadRow()],
+    campaignLeads: [createCampaignLeadRow()],
+  })
+
+  const executions = await triggerLeadAddedToCampaignWorkflows({
+    leadId: 'lead-1',
+    campaignId: 'campaign-1',
+  }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+
+  assert.equal(executions.length, 1)
+  assert.equal(executions[0].status, 'completed')
+  assert.equal(executions[0].context.autoTriggered, true)
+  assert.equal(executions[0].context.triggerSource, 'lead_added_to_campaign')
+  assert.equal(executions[0].context.recipientEmail, 'lead@example.com')
+  assert.equal(supabase.tables.email_drafts.length, 1)
+  assert.equal(supabase.tables.email_drafts[0].status, 'pending_approval')
+})
+
+test('auto-trigger prevents duplicate workflow lead campaign runs', async () => {
+  const supabase = createMockSupabase({
+    workflowDrafts: [createWorkflowDraftRow({ is_active: true })],
+    leads: [createLeadRow()],
+    campaignLeads: [createCampaignLeadRow()],
+    workflowExecutions: [{
+      id: 'execution-existing',
+      workspace_id: 'workspace-1',
+      workflow_draft_id: 'workflow-1',
+      lead_id: 'lead-1',
+      campaign_id: 'campaign-1',
+      status: 'completed',
+      current_node_id: null,
+      started_at: '2026-09-30T12:00:00.000Z',
+      completed_at: '2026-09-30T12:01:00.000Z',
+      error_message: null,
+      context: { triggerSource: 'lead_added_to_campaign' },
+      created_at: '2026-09-30T12:00:00.000Z',
+      updated_at: '2026-09-30T12:01:00.000Z',
+    }],
+  })
+
+  const executions = await triggerLeadAddedToCampaignWorkflows({
+    leadId: 'lead-1',
+    campaignId: 'campaign-1',
+  }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+
+  assert.equal(executions.length, 0)
+  assert.equal(supabase.tables.workflow_executions.length, 1)
+  assert.equal(supabase.tables.email_drafts.length, 0)
+})
+
+test('create_ai_draft persists a pending approval email draft when campaign lead context exists', async () => {
+  const supabase = createMockSupabase({
+    leads: [createLeadRow({ name: 'Persist Lead', company: 'Persist Co' })],
+    campaignLeads: [createCampaignLeadRow({
+      leads: { id: 'lead-1', name: 'Persist Lead', email: 'lead@example.com', company: 'Persist Co' },
+    })],
+  })
+
+  const execution = await startAndRun(supabase, { leadId: 'lead-1', campaignId: 'campaign-1' })
+  const draftStep = execution.steps.find((step) => step.typeKey === 'action.create_ai_draft')
+
+  assert.equal(supabase.tables.email_drafts.length, 1)
+  assert.equal(supabase.tables.email_drafts[0].status, 'pending_approval')
+  assert.equal(supabase.tables.email_drafts[0].campaign_lead_id, 'campaign-lead-1')
+  assert.equal(draftStep.output.persisted, true)
+  assert.equal(draftStep.output.emailDraftId, supabase.tables.email_drafts[0].id)
+})
+
+test('send approved email uses persisted draft subject and body when available', async () => {
+  env.emailSend.mode = 'live'
+  env.emailSend.liveApproved = true
+  const sentDrafts = []
+  const supabase = createMockSupabase({
+    workflowDrafts: [createApprovedSendWorkflow()],
+    leads: [createLeadRow({ email: 'buyer@example.com', name: 'Buyer Lead', company: 'Buyer Co' })],
+    campaignLeads: [createCampaignLeadRow({
+      leads: { id: 'lead-1', name: 'Buyer Lead', email: 'buyer@example.com', company: 'Buyer Co' },
+      campaigns: { id: 'campaign-1', name: 'Buyer Campaign', description: 'sell safely' },
+    })],
+    emailAccounts: [createEmailAccountRow()],
+  })
+
+  const pausedExecution = await startAndRun(supabase, { leadId: 'lead-1', campaignId: 'campaign-1' })
+  const persistedDraft = supabase.tables.email_drafts[0]
+  persistedDraft.subject = 'Persisted controlled subject'
+  persistedDraft.body = 'Persisted controlled body'
+
+  const resumedExecution = await resumeWorkflowExecution({ executionId: pausedExecution.id }, {
+    supabase,
+    workspaceId: 'workspace-1',
+    emailSender: async ({ draft }) => {
+      sentDrafts.push(draft)
+      return {
+        messageId: 'gmail-message-persisted',
+        threadId: 'gmail-thread-persisted',
+        sentAt: '2026-09-30T12:45:00.000Z',
+      }
+    },
+  })
+  const sendStep = resumedExecution.steps.find((step) => step.typeKey === 'action.send_approved_email')
+
+  assert.equal(sentDrafts.length, 1)
+  assert.equal(sentDrafts[0].id, persistedDraft.id)
+  assert.equal(sentDrafts[0].subject, 'Persisted controlled subject')
+  assert.equal(sentDrafts[0].body, 'Persisted controlled body')
+  assert.equal(sendStep.output.emailStatus, 'sent')
+  assert.equal(sendStep.output.emailDraftId, persistedDraft.id)
+  assert.equal(supabase.tables.sent_emails[0].subject, 'Persisted controlled subject')
 })

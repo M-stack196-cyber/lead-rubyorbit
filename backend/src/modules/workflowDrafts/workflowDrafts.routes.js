@@ -18,6 +18,7 @@ export const workflowDraftsRouter = Router()
 const workflowDraftBodySchema = {
   name: { type: 'string', minLength: 1, maxLength: 200 },
   status: { type: 'string', enum: ['draft'] },
+  isActive: { type: 'boolean' },
   mode: { type: 'string', enum: ['visual-only'] },
   nodes: { type: 'array' },
   edges: { type: 'array' },

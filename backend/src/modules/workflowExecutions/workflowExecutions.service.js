@@ -7,6 +7,7 @@ const workflowDraftSelect = `
   workspace_id,
   name,
   status,
+  is_active,
   mode,
   nodes,
   edges,
@@ -39,6 +40,37 @@ const leadSelect = `
   name,
   email,
   company
+`
+
+const campaignLeadSelect = `
+  id,
+  campaign_id,
+  lead_id,
+  campaigns (
+    id,
+    name,
+    description
+  ),
+  leads (
+    id,
+    name,
+    email,
+    company
+  )
+`
+
+const emailDraftSelect = `
+  id,
+  campaign_id,
+  lead_id,
+  campaign_lead_id,
+  type,
+  subject,
+  body,
+  status,
+  ai_generated,
+  created_at,
+  updated_at
 `
 
 const stepSelect = `
@@ -231,12 +263,100 @@ async function getLeadById(supabase, leadId, workspaceId) {
   return data
 }
 
-function enrichExecutionContext(baseContext = {}, lead = null) {
+async function getCampaignLeadForExecution(supabase, { campaignId, leadId, workspaceId } = {}) {
+  if (!campaignId || !leadId) return null
+
+  const { data, error } = await scopeWorkspace(
+    supabase.from('campaign_leads').select(campaignLeadSelect),
+    workspaceId,
+  )
+    .eq('campaign_id', campaignId)
+    .eq('lead_id', leadId)
+    .maybeSingle()
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  return data
+}
+
+function buildWorkflowDraftCopy({ context = {}, campaignLead = null } = {}) {
+  const lead = campaignLead?.leads || {}
+  const campaign = campaignLead?.campaigns || {}
+  const recipientName = context.recipientName || context.leadName || lead.name || 'there'
+  const recipientCompany = context.recipientCompany || context.leadCompany || lead.company || 'your team'
+  const campaignName = campaign.name || context.campaignName || 'this campaign'
+  const campaignGoal = String(campaign.description || context.campaignDescription || 'explore whether there is a useful fit').trim()
+
+  return {
+    subject: 'Quick idea for ' + recipientCompany,
+    body: [
+      'Hi ' + recipientName + ',',
+      '',
+      'I wanted to reach out with a focused note for ' + recipientCompany + '.',
+      'For ' + campaignName + ', the goal is simple: ' + campaignGoal + '.',
+      '',
+      'Would you be open to a quick conversation this week?',
+      '',
+      'Best,',
+      'LeadRubyOrbit',
+    ].join('\n'),
+  }
+}
+
+async function persistWorkflowEmailDraft({ supabase, workspaceId, execution, context, campaignLead }) {
+  if (!execution.lead_id || !execution.campaign_id || !campaignLead?.id) return null
+
+  const copy = buildWorkflowDraftCopy({ context, campaignLead })
+  const { data, error } = await supabase
+    .from('email_drafts')
+    .insert(withWorkspaceFields({
+      campaign_id: execution.campaign_id,
+      lead_id: execution.lead_id,
+      campaign_lead_id: campaignLead.id,
+      type: 'primary',
+      subject: copy.subject,
+      body: copy.body,
+      status: 'pending_approval',
+      manual_created: false,
+      ai_generated: true,
+      ai_model: 'lead-rubyorbit-workflow-template-v1',
+      ai_prompt: 'Create workflow outreach draft for lead added to campaign.',
+      ai_tone: 'professional',
+      ai_generation_type: 'workflow_primary_outreach',
+      ai_source: {
+        workflowExecutionId: execution.id,
+        workflowDraftId: execution.workflow_draft_id,
+        campaignLeadId: campaignLead.id,
+        campaignId: execution.campaign_id,
+        leadId: execution.lead_id,
+      },
+      created_by: null,
+    }, workspaceId))
+    .select(emailDraftSelect)
+    .single()
+
+  if (error) {
+    throw createHttpError(error.message, error.code === '23503' ? 400 : 500)
+  }
+
+  return data
+}
+
+function enrichExecutionContext(baseContext = {}, lead = null, campaignLead = null) {
   const context = normalizeObject(baseContext)
+  const campaign = campaignLead?.campaigns || null
 
   if (!lead) {
     const recipientEmail = normalizeRecipientEmail(context.recipientEmail)
-    return recipientEmail ? { ...context, recipientEmail } : context
+    return {
+      ...context,
+      ...(recipientEmail ? { recipientEmail } : {}),
+      ...(campaignLead?.id ? { campaignLeadId: campaignLead.id } : {}),
+      ...(campaign?.name ? { campaignName: campaign.name } : {}),
+      ...(campaign?.description ? { campaignDescription: campaign.description } : {}),
+    }
   }
 
   const leadEmail = normalizeRecipientEmail(lead.email)
@@ -248,6 +368,9 @@ function enrichExecutionContext(baseContext = {}, lead = null) {
     recipientCompany: lead.company || context.recipientCompany || '',
     leadName: lead.name || context.leadName || '',
     leadCompany: lead.company || context.leadCompany || '',
+    campaignLeadId: campaignLead?.id || context.campaignLeadId || '',
+    campaignName: campaign?.name || context.campaignName || '',
+    campaignDescription: campaign?.description || context.campaignDescription || '',
   }
 }
 
@@ -391,15 +514,30 @@ async function executeNode(node, input, runtime = {}) {
         },
       }
     case 'action.create_ai_draft': {
-      const recipientName = input.context?.recipientName || input.context?.leadName || 'there'
-      const recipientCompany = input.context?.recipientCompany || input.context?.leadCompany || 'your team'
+      const campaignLead = await getCampaignLeadForExecution(runtime.supabase, {
+        campaignId: input.campaignId,
+        leadId: input.leadId,
+        workspaceId: runtime.workspaceId,
+      })
+      const copy = buildWorkflowDraftCopy({ context: input.context, campaignLead })
+      const persistedDraft = await persistWorkflowEmailDraft({
+        supabase: runtime.supabase,
+        workspaceId: runtime.workspaceId,
+        execution: runtime.execution,
+        context: input.context || {},
+        campaignLead,
+      })
+
       return {
         status: 'completed',
         output: {
-          draftStatus: 'prepared',
-          recipientEmail: input.context?.recipientEmail || null,
-          subject: 'Quick note for ' + recipientCompany,
-          body: 'Hi ' + recipientName + ',\n\nI wanted to follow up with a short note tailored for ' + recipientCompany + '. If this is relevant, reply and we can coordinate next steps.\n\nBest,\nLeadRubyOrbit',
+          draftStatus: persistedDraft ? 'pending_approval' : 'prepared',
+          emailDraftId: persistedDraft?.id || null,
+          persisted: Boolean(persistedDraft),
+          campaignLeadId: campaignLead?.id || input.context?.campaignLeadId || null,
+          recipientEmail: input.context?.recipientEmail || campaignLead?.leads?.email || null,
+          subject: persistedDraft?.subject || copy.subject,
+          body: persistedDraft?.body || copy.body,
         },
       }
     }
@@ -475,9 +613,14 @@ export async function startWorkflowExecution(payload = {}, context = {}) {
 
   await getWorkflowDraftById(supabase, payload.workflowDraftId, workspaceId)
   const lead = await getLeadById(supabase, payload.leadId, workspaceId)
+  const campaignLead = await getCampaignLeadForExecution(supabase, {
+    campaignId: payload.campaignId,
+    leadId: payload.leadId,
+    workspaceId,
+  })
   const execution = await insertExecution(supabase, {
     ...payload,
-    context: enrichExecutionContext(payload.context, lead),
+    context: enrichExecutionContext(payload.context, lead, campaignLead),
   }, workspaceId)
 
   return mapExecution(execution)
@@ -517,6 +660,7 @@ async function runExecutionFromNode({ supabase, workspaceId, execution, graph, s
       const result = await executeNode(node, input, {
         supabase,
         workspaceId,
+        execution: currentExecution,
         previousSteps,
         emailSender,
       })
@@ -655,6 +799,84 @@ export async function resumeWorkflowExecution({ executionId, context: resumeCont
     visitedNodeIds,
     emailSender: context.emailSender,
   })
+}
+
+async function getActiveLeadAddedWorkflowDrafts(supabase, workspaceId) {
+  const { data, error } = await scopeWorkspace(
+    supabase.from('workflow_drafts').select(workflowDraftSelect),
+    workspaceId,
+  )
+    .eq('is_active', true)
+    .order('updated_at', { ascending: false })
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  return (data || []).filter((draft) =>
+    (Array.isArray(draft.nodes) ? draft.nodes : [])
+      .map(normalizeNode)
+      .some((node) => node.typeKey === 'trigger.lead_added_to_campaign'),
+  )
+}
+
+async function hasExistingAutoExecution(supabase, { workspaceId, workflowDraftId, leadId, campaignId }) {
+  const { data, error } = await scopeWorkspace(
+    supabase.from('workflow_executions').select('id'),
+    workspaceId,
+  )
+    .eq('workflow_draft_id', workflowDraftId)
+    .eq('lead_id', leadId)
+    .eq('campaign_id', campaignId)
+    .eq('context->>triggerSource', 'lead_added_to_campaign')
+    .maybeSingle()
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  return Boolean(data)
+}
+
+export async function triggerLeadAddedToCampaignWorkflows({ leadId, campaignId } = {}, context = {}) {
+  if (!leadId || !campaignId) return []
+
+  const supabase = getClient(context)
+  const workspaceId = getWorkspaceId(context)
+  const activeDrafts = await getActiveLeadAddedWorkflowDrafts(supabase, workspaceId)
+  const executions = []
+
+  for (const draft of activeDrafts) {
+    const duplicate = await hasExistingAutoExecution(supabase, {
+      workspaceId,
+      workflowDraftId: draft.id,
+      leadId,
+      campaignId,
+    })
+
+    if (duplicate) continue
+
+    const started = await startWorkflowExecution({
+      workflowDraftId: draft.id,
+      leadId,
+      campaignId,
+      context: {
+        triggerSource: 'lead_added_to_campaign',
+        autoTriggered: true,
+        replyReceived: false,
+      },
+    }, {
+      supabase,
+      workspaceId,
+    })
+    executions.push(await runWorkflowExecution({ executionId: started.id }, {
+      supabase,
+      workspaceId,
+      emailSender: context.emailSender,
+    }))
+  }
+
+  return executions
 }
 
 export async function getWorkflowExecution(executionId, context = {}) {
