@@ -331,6 +331,7 @@ function WorkflowBuilderContent({ onNavigate }) {
   const [workflowExecutionError, setWorkflowExecutionError] = useState('')
   const [isWorkflowExecutionLoading, setIsWorkflowExecutionLoading] = useState(false)
   const [isWorkflowResumeLoading, setIsWorkflowResumeLoading] = useState(false)
+  const [workflowRunRecipientEmail, setWorkflowRunRecipientEmail] = useState('')
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || null,
@@ -969,10 +970,12 @@ function WorkflowBuilderContent({ onNavigate }) {
     setActiveModal('execution')
 
     try {
+      const recipientEmail = workflowRunRecipientEmail.trim()
       const execution = await runWorkflowDraft(workflowDraftId, {
         context: {
           controlledExecution: true,
           replyReceived: false,
+          ...(recipientEmail ? { recipientEmail } : {}),
         },
       })
       setWorkflowExecution(execution)
@@ -1194,6 +1197,16 @@ function WorkflowBuilderContent({ onNavigate }) {
           </button>
           {canRunSavedWorkflow ? (
             <div className="flex flex-wrap items-center gap-2">
+              <label className="min-w-64 flex-1 xl:max-w-xs">
+                <span className="text-xs font-semibold text-slate-600">Recipient email for controlled workflow run</span>
+                <input
+                  className="mt-1 min-h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  type="email"
+                  value={workflowRunRecipientEmail}
+                  onChange={(event) => setWorkflowRunRecipientEmail(event.target.value)}
+                  placeholder="optional@example.com"
+                />
+              </label>
               <button
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                 type="button"
@@ -1532,6 +1545,10 @@ function ExecutionResult({ error, execution, isLoading, isResumeLoading, onResum
   }
 
   const steps = Array.isArray(execution.steps) ? execution.steps : []
+  const recipientEmail = execution.context?.recipientEmail
+    || steps.find((step) => step.output?.toEmail)?.output?.toEmail
+    || steps.find((step) => step.output?.recipientEmail)?.output?.recipientEmail
+    || ''
 
   return (
     <div className="grid gap-4">
@@ -1539,6 +1556,11 @@ function ExecutionResult({ error, execution, isLoading, isResumeLoading, onResum
         Production safety controls enabled. Approval, wait, and email steps are recorded; real email sends require live mode, approval, and a valid recipient.
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        {recipientEmail ? (
+          <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+            Recipient {recipientEmail}
+          </Badge>
+        ) : null}
         <Badge variant="outline" className={getExecutionStatusClass(execution.status)}>
           {execution.status}
         </Badge>

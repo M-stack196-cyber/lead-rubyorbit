@@ -32,6 +32,15 @@ const executionSelect = `
   updated_at
 `
 
+const recipientEmailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const leadSelect = `
+  id,
+  name,
+  email,
+  company
+`
+
 const stepSelect = `
   id,
   execution_id,
@@ -80,6 +89,18 @@ function getClient(context = {}) {
 
 function getWorkspaceId(context = {}) {
   return context.workspaceId || getCurrentWorkspaceId()
+}
+
+function normalizeRecipientEmail(value) {
+  const email = String(value || '').trim()
+
+  if (!email) return ''
+
+  if (!recipientEmailRegex.test(email)) {
+    throw createHttpError('recipientEmail must be a valid email address.')
+  }
+
+  return email
 }
 
 function normalizeObject(value, fallback = {}) {
@@ -193,6 +214,43 @@ async function getWorkflowDraftById(supabase, workflowDraftId, workspaceId) {
   return data
 }
 
+async function getLeadById(supabase, leadId, workspaceId) {
+  if (!leadId) return null
+
+  const { data, error } = await scopeWorkspace(
+    supabase.from('leads').select(leadSelect),
+    workspaceId,
+  )
+    .eq('id', leadId)
+    .single()
+
+  if (error) {
+    throw createHttpError(error.code === 'PGRST116' ? 'Lead not found.' : error.message, error.code === 'PGRST116' ? 404 : 500)
+  }
+
+  return data
+}
+
+function enrichExecutionContext(baseContext = {}, lead = null) {
+  const context = normalizeObject(baseContext)
+
+  if (!lead) {
+    const recipientEmail = normalizeRecipientEmail(context.recipientEmail)
+    return recipientEmail ? { ...context, recipientEmail } : context
+  }
+
+  const leadEmail = normalizeRecipientEmail(lead.email)
+
+  return {
+    ...context,
+    recipientEmail: leadEmail || context.recipientEmail || '',
+    recipientName: lead.name || context.recipientName || '',
+    recipientCompany: lead.company || context.recipientCompany || '',
+    leadName: lead.name || context.leadName || '',
+    leadCompany: lead.company || context.leadCompany || '',
+  }
+}
+
 async function getExecutionRow(supabase, executionId, workspaceId) {
   const { data, error } = await scopeWorkspace(
     supabase.from('workflow_executions').select(executionSelect),
@@ -237,7 +295,7 @@ async function insertExecution(supabase, payload, workspaceId) {
       campaign_id: payload.campaignId || null,
       status: 'running',
       current_node_id: null,
-      context: normalizeObject(payload.context),
+      context: payload.context,
     }, workspaceId))
     .select(executionSelect)
     .single()
@@ -332,15 +390,19 @@ async function executeNode(node, input, runtime = {}) {
           campaignId: input.campaignId || null,
         },
       }
-    case 'action.create_ai_draft':
+    case 'action.create_ai_draft': {
+      const recipientName = input.context?.recipientName || input.context?.leadName || 'there'
+      const recipientCompany = input.context?.recipientCompany || input.context?.leadCompany || 'your team'
       return {
         status: 'completed',
         output: {
-          draftStatus: 'simulated',
-          subject: 'Simulated AI outreach draft',
-          body: 'Simulated AI draft body for workflow execution demo.',
+          draftStatus: 'prepared',
+          recipientEmail: input.context?.recipientEmail || null,
+          subject: 'Quick note for ' + recipientCompany,
+          body: 'Hi ' + recipientName + ',\n\nI wanted to follow up with a short note tailored for ' + recipientCompany + '. If this is relevant, reply and we can coordinate next steps.\n\nBest,\nLeadRubyOrbit',
         },
       }
+    }
     case 'wait.wait_for_approval':
       return {
         status: 'paused',
@@ -412,7 +474,11 @@ export async function startWorkflowExecution(payload = {}, context = {}) {
   const workspaceId = getWorkspaceId(context)
 
   await getWorkflowDraftById(supabase, payload.workflowDraftId, workspaceId)
-  const execution = await insertExecution(supabase, payload, workspaceId)
+  const lead = await getLeadById(supabase, payload.leadId, workspaceId)
+  const execution = await insertExecution(supabase, {
+    ...payload,
+    context: enrichExecutionContext(payload.context, lead),
+  }, workspaceId)
 
   return mapExecution(execution)
 }

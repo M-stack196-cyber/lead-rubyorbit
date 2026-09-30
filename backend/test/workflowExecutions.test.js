@@ -332,7 +332,7 @@ test('workflow execution run requires auth', async () => {
 })
 
 test('startWorkflowExecution creates a workspace-scoped execution', async () => {
-  const supabase = createMockSupabase()
+  const supabase = createMockSupabase({ leads: [createLeadRow()] })
 
   const execution = await startWorkflowExecution({
     workflowDraftId: 'workflow-1',
@@ -347,10 +347,66 @@ test('startWorkflowExecution creates a workspace-scoped execution', async () => 
   assert.equal(execution.status, 'running')
   assert.equal(execution.workflowDraftId, 'workflow-1')
   assert.equal(execution.leadId, 'lead-1')
+  assert.equal(execution.context.recipientEmail, 'lead@example.com')
+  assert.equal(execution.context.recipientName, 'Workflow Lead')
+  assert.equal(execution.context.recipientCompany, 'Example Co')
   assert.equal(supabase.tables.workflow_executions.length, 1)
-  assert.deepEqual(
-    supabase.calls.filter((call) => call[0] === 'eq' && call[2] === 'workspace_id').map((call) => call[3]),
-    ['workspace-1'],
+  assert.equal(
+    supabase.calls.filter((call) => call[0] === 'eq' && call[2] === 'workspace_id').every((call) => call[3] === 'workspace-1'),
+    true,
+  )
+})
+
+test('workflow run with leadId loads lead email into context', async () => {
+  const supabase = createMockSupabase({
+    leads: [createLeadRow({ email: 'real-lead@example.com', name: 'Real Lead', company: 'Real Co' })],
+  })
+
+  const execution = await startAndRun(supabase, { leadId: 'lead-1' })
+  const draftStep = execution.steps.find((step) => step.typeKey === 'action.create_ai_draft')
+
+  assert.equal(execution.context.recipientEmail, 'real-lead@example.com')
+  assert.equal(execution.context.recipientName, 'Real Lead')
+  assert.equal(execution.context.recipientCompany, 'Real Co')
+  assert.equal(draftStep.output.recipientEmail, 'real-lead@example.com')
+  assert.match(draftStep.output.subject, /Real Co/)
+  assert.match(draftStep.output.body, /Real Lead/)
+})
+
+test('workflow run with manual recipientEmail validates and passes to send step', async () => {
+  env.emailSend.mode = 'mock'
+  env.emailSend.liveApproved = false
+  const supabase = createMockSupabase({ workflowDrafts: [createApprovedSendWorkflow()] })
+
+  const pausedExecution = await startAndRun(supabase, {
+    context: {
+      recipientEmail: 'manual@example.com',
+      recipientName: 'Manual Recipient',
+      recipientCompany: 'Manual Co',
+    },
+  })
+  const resumedExecution = await resumeExecution(supabase, pausedExecution.id)
+  const draftStep = resumedExecution.steps.find((step) => step.typeKey === 'action.create_ai_draft')
+  const sendStep = resumedExecution.steps.find((step) => step.typeKey === 'action.send_approved_email')
+
+  assert.equal(resumedExecution.context.recipientEmail, 'manual@example.com')
+  assert.equal(draftStep.output.recipientEmail, 'manual@example.com')
+  assert.equal(sendStep.output.emailStatus, 'mock')
+  assert.equal(sendStep.output.toEmail, 'manual@example.com')
+})
+
+test('workflow run with invalid manual recipientEmail fails safely', async () => {
+  const supabase = createMockSupabase()
+
+  await assert.rejects(
+    startWorkflowExecution({
+      workflowDraftId: 'workflow-1',
+      context: { recipientEmail: 'not-an-email' },
+    }, {
+      supabase,
+      workspaceId: 'workspace-1',
+    }),
+    /recipientEmail must be a valid email address/,
   )
 })
 
