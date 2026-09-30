@@ -1099,10 +1099,10 @@ function WorkflowBuilderContent({ onNavigate }) {
               <p className="text-xs text-slate-500">Workflow Builder</p>
             </div>
           </div>
-          <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
-            Visual draft mode
+          <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+            Safe demo execution
           </Badge>
-          <span className="text-xs font-medium text-slate-500">This builder does not send emails automatically.</span>
+          <span className="text-xs font-medium text-slate-500">Run saved workflows with simulated waits and guarded email steps.</span>
         </div>
 
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-start gap-2 xl:justify-end">
@@ -1193,15 +1193,18 @@ function WorkflowBuilderContent({ onNavigate }) {
             Preview
           </button>
           {canRunSavedWorkflow ? (
-            <button
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-              type="button"
-              onClick={handleRunWorkflow}
-              disabled={isWorkflowExecutionLoading}
-            >
-              <PlayCircle className="h-4 w-4" aria-hidden="true" />
-              {isWorkflowExecutionLoading ? 'Running...' : 'Run Workflow'}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                onClick={handleRunWorkflow}
+                disabled={isWorkflowExecutionLoading}
+              >
+                <PlayCircle className="h-4 w-4" aria-hidden="true" />
+                {isWorkflowExecutionLoading ? 'Running...' : 'Run Workflow'}
+              </button>
+              <span className="text-xs font-medium text-emerald-700">Safe demo mode</span>
+            </div>
           ) : null}
           <button
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 shadow-sm transition hover:bg-amber-100"
@@ -1427,7 +1430,7 @@ function WorkflowBuilderContent({ onNavigate }) {
         <Modal title="Workflow JSON Preview" onClose={() => setActiveModal(null)}>
           <PreviewSummary summary={workflowSummary} />
           <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-800">
-            Preview only. This workflow does not execute automation or send emails.
+            Preview only. Run Workflow is available after saving; email steps remain guarded in safe demo mode.
           </div>
           <div className="max-h-72 overflow-y-auto pr-1">
             <CompatibilitySummary result={compatibilityResult} title="Local Compatibility Check" />
@@ -1472,9 +1475,9 @@ function WorkflowBuilderContent({ onNavigate }) {
       ) : null}
 
       {activeModal === 'test' ? (
-        <Modal title="Mock Run Test" onClose={() => setActiveModal(null)}>
+        <Modal title="Local Structure Test" onClose={() => setActiveModal(null)}>
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-800">
-            Mock test only. No backend automation ran and no emails were sent.
+            Local structure test only. Use Run Workflow on a saved draft for safe demo execution.
           </div>
           <BlockMappingSummary compatibilityResult={compatibilityResult} nodes={nodes} />
           <div className="mt-4">
@@ -1532,6 +1535,9 @@ function ExecutionResult({ error, execution, isLoading, isResumeLoading, onResum
 
   return (
     <div className="grid gap-4">
+      <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm font-medium text-emerald-800">
+        Safe demo execution. Approval, wait, and email steps are recorded without uncontrolled real email sending.
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="outline" className={getExecutionStatusClass(execution.status)}>
           {execution.status}
@@ -1595,7 +1601,7 @@ function BuilderTips() {
     'Connect each step in order.',
     'Use conditions for reply/no-reply branches.',
     'Save draft before leaving the page.',
-    'This builder is visual-only for now.',
+    'Run saved drafts in safe demo mode.',
   ]
 
   return (
@@ -1620,8 +1626,8 @@ function DraftManager({ actionDraftId, currentDraftId, drafts, error, isLoading,
     <div className="grid gap-4">
       <div className="flex flex-col gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="font-semibold">Visual draft mode</p>
-          <p className="mt-1">Saved workflow drafts do not execute automation or send emails.</p>
+          <p className="font-semibold">Safe demo execution</p>
+          <p className="mt-1">Saved drafts can run with simulated waits, approval pauses, and guarded email steps.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -1722,7 +1728,7 @@ function DraftManager({ actionDraftId, currentDraftId, drafts, error, isLoading,
                   <p className="mt-1 text-xs text-slate-500">Updated {formatDraftDate(draft.updatedAt)}</p>
                 </div>
                 <DraftMeta label="Status" value={draft.status || 'draft'} />
-                <DraftMeta label="Mode" value={draft.mode || 'visual-only'} />
+                <DraftMeta label="Schema" value={draft.mode || 'visual-only'} />
                 <DraftMeta label="Validation" value={draft.validationStatus || 'Warning'} />
                 <DraftMeta label="Local compat" value={getDraftLocalCompatibilityStatus(draft)} />
                 <DraftMeta
@@ -1808,15 +1814,15 @@ function PreviewSummary({ summary }) {
     <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-5">
       <InfoPill label="Nodes" value={summary.nodes} />
       <InfoPill label="Edges" value={summary.edges} />
-      <InfoPill label="Mode" value="visual-only" />
-      <InfoPill label="Execution" value="disabled" />
-      <InfoPill label="Safety" value="no backend call, no emails sent" />
+      <InfoPill label="Mode" value="safe demo" />
+      <InfoPill label="Execution" value="saved draft run" />
+      <InfoPill label="Safety" value="guarded email steps" />
     </div>
   )
 }
 
 function CompatibilitySummary({
-  description = 'Informational only. No backend execution APIs are called.',
+  description = 'Compatibility check only. Run Workflow uses the saved draft execution API.',
   result,
   title = 'Backend Compatibility Check',
 }) {
