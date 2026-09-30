@@ -8,6 +8,7 @@ import {
   updateWorkflowDraftController,
   validateWorkflowSchemaController,
 } from './workflowDrafts.controller.js'
+import { runWorkflowDraftController } from '../workflowExecutions/workflowExecutions.controller.js'
 import { auditAction } from '../../middleware/audit.js'
 import { permissions, requirePermission } from '../../middleware/permissions.js'
 import { validateBody } from '../../middleware/validate.js'
@@ -22,6 +23,12 @@ const workflowDraftBodySchema = {
   edges: { type: 'array' },
   summary: { type: 'object' },
   validationStatus: { type: 'string', enum: ['Passed', 'Warning', 'Error'] },
+}
+
+const workflowRunBodySchema = {
+  leadId: { type: 'string' },
+  campaignId: { type: 'string' },
+  context: { type: 'object' },
 }
 
 workflowDraftsRouter.get(
@@ -40,6 +47,14 @@ workflowDraftsRouter.get(
   '/:id',
   requirePermission(permissions.AUTOMATION_MANAGE),
   getWorkflowDraftByIdController,
+)
+
+workflowDraftsRouter.post(
+  '/:id/run',
+  validateBody(workflowRunBodySchema),
+  requirePermission(permissions.AUTOMATION_MANAGE),
+  auditAction('workflow_execution.start', 'workflow_draft', (req) => req.params.id),
+  runWorkflowDraftController,
 )
 
 workflowDraftsRouter.post(

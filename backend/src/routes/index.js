@@ -25,6 +25,7 @@ import { replyMonitoringRouter } from '../modules/replyMonitoring/replyMonitorin
 import { teamDecisionsRouter } from '../modules/teamDecisions/teamDecisions.routes.js'
 import { teamMembersRouter } from '../modules/teamMembers/teamMembers.routes.js'
 import { workflowDraftsRouter } from '../modules/workflowDrafts/workflowDrafts.routes.js'
+import { workflowExecutionsRouter } from '../modules/workflowExecutions/workflowExecutions.routes.js'
 import { workflowSettingsRouter } from '../modules/workflowSettings/workflowSettings.routes.js'
 import { listReplyReplyDraftsController } from '../modules/emailDrafts/emailDrafts.controller.js'
 import { listReplyTeamDecisionsController } from '../modules/teamDecisions/teamDecisions.controller.js'
@@ -96,6 +97,7 @@ apiRoutes.use('/notifications', notificationsRouter)
 apiRoutes.use('/team-decisions', teamDecisionsRouter)
 apiRoutes.use('/team-members', teamMembersRouter)
 apiRoutes.use('/workflows', workflowDraftsRouter)
+apiRoutes.use('/workflow-executions', workflowExecutionsRouter)
 apiRoutes.use('/workflow-settings', workflowSettingsRouter)
 apiRoutes.get('/replies/:replyId/reply-drafts', listReplyReplyDraftsController)
 apiRoutes.get('/replies/:replyId/team-decisions', listReplyTeamDecisionsController)

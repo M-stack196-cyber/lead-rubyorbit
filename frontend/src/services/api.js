@@ -704,6 +704,28 @@ export async function validateWorkflowSchema(schema) {
   return payload.data
 }
 
+export async function runWorkflowDraft(workflowDraftId, payload = {}) {
+  const response = await fetch(API_BASE_URL + '/api/workflows/' + workflowDraftId + '/run', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+
+  const parsedPayload = await parseApiResponse(response)
+  return parsedPayload.data
+}
+
+export async function getWorkflowExecution(executionId) {
+  const response = await fetch(API_BASE_URL + '/api/workflow-executions/' + executionId, {
+    cache: 'no-store',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
 export async function getTeamMembers() {
   const response = await fetch(`${API_BASE_URL}/api/team-members`)
 

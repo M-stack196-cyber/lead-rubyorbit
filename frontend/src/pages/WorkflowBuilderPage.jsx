@@ -55,6 +55,7 @@ import {
   createWorkflowDraft,
   deleteWorkflowDraft,
   getWorkflowDrafts,
+  runWorkflowDraft,
   updateWorkflowDraft,
   validateWorkflowSchema,
 } from '@/services/api'
@@ -325,6 +326,9 @@ function WorkflowBuilderContent({ onNavigate }) {
   const [backendCompatibilityError, setBackendCompatibilityError] = useState('')
   const [isBackendCompatibilityLoading, setIsBackendCompatibilityLoading] = useState(false)
   const [savedDraftSummary, setSavedDraftSummary] = useState(null)
+  const [workflowExecution, setWorkflowExecution] = useState(null)
+  const [workflowExecutionError, setWorkflowExecutionError] = useState('')
+  const [isWorkflowExecutionLoading, setIsWorkflowExecutionLoading] = useState(false)
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || null,
@@ -954,6 +958,30 @@ function WorkflowBuilderContent({ onNavigate }) {
     setActiveModal('test')
   }
 
+  async function handleRunWorkflow() {
+    if (!workflowDraftId || isDirty) return
+
+    setIsWorkflowExecutionLoading(true)
+    setWorkflowExecutionError('')
+    setWorkflowExecution(null)
+    setActiveModal('execution')
+
+    try {
+      const execution = await runWorkflowDraft(workflowDraftId, {
+        context: {
+          demo: true,
+          replyReceived: false,
+        },
+      })
+      setWorkflowExecution(execution)
+      setMessage('Workflow execution finished with status: ' + execution.status + '.')
+    } catch (error) {
+      setWorkflowExecutionError(error.message || 'Could not run workflow execution.')
+    } finally {
+      setIsWorkflowExecutionLoading(false)
+    }
+  }
+
   function handleCenterView() {
     flowInstance?.fitView({ padding: 0.2, duration: 500 })
   }
@@ -1017,6 +1045,7 @@ function WorkflowBuilderContent({ onNavigate }) {
   const savedSummarySnapshot = normalizeDraftSummary({ summary: savedDraftSummary })
   const savedBackendCompatibilityStatus = !isDirty ? getBackendCompatibilityStatusFromSummary(savedSummarySnapshot) : ''
   const savedBackendValidatedAt = !isDirty ? getBackendValidatedAtFromSummary(savedSummarySnapshot) : ''
+  const canRunSavedWorkflow = Boolean(workflowDraftId && !isDirty)
 
   useEffect(() => {
     const checkedSchemaJson = backendCompatibilitySnapshotRef.current?.schemaJson || backendCompatibilitySchemaJson
@@ -1139,6 +1168,17 @@ function WorkflowBuilderContent({ onNavigate }) {
             <PlayCircle className="h-4 w-4" aria-hidden="true" />
             Preview
           </button>
+          {canRunSavedWorkflow ? (
+            <button
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+              type="button"
+              onClick={handleRunWorkflow}
+              disabled={isWorkflowExecutionLoading}
+            >
+              <PlayCircle className="h-4 w-4" aria-hidden="true" />
+              {isWorkflowExecutionLoading ? 'Running...' : 'Run Workflow'}
+            </button>
+          ) : null}
           <button
             className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 shadow-sm transition hover:bg-amber-100"
             type="button"
@@ -1395,6 +1435,16 @@ function WorkflowBuilderContent({ onNavigate }) {
         </Modal>
       ) : null}
 
+      {activeModal === 'execution' ? (
+        <Modal title="Workflow Execution" onClose={() => setActiveModal(null)}>
+          <ExecutionResult
+            error={workflowExecutionError}
+            execution={workflowExecution}
+            isLoading={isWorkflowExecutionLoading}
+          />
+        </Modal>
+      ) : null}
+
       {activeModal === 'test' ? (
         <Modal title="Mock Run Test" onClose={() => setActiveModal(null)}>
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-800">
@@ -1429,6 +1479,77 @@ function WorkflowSummaryCards({ summary }) {
       ))}
     </div>
   )
+}
+
+function ExecutionResult({ error, execution, isLoading }) {
+  if (isLoading) {
+    return (
+      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-700">
+        Running workflow...
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm font-medium text-red-700">
+        {error}
+      </div>
+    )
+  }
+
+  if (!execution) {
+    return null
+  }
+
+  const steps = Array.isArray(execution.steps) ? execution.steps : []
+
+  return (
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="outline" className={getExecutionStatusClass(execution.status)}>
+          {execution.status}
+        </Badge>
+        <span className="text-sm font-medium text-slate-600">
+          {steps.length} step{steps.length === 1 ? '' : 's'}
+        </span>
+      </div>
+      {execution.errorMessage ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm font-medium text-red-700">
+          {execution.errorMessage}
+        </div>
+      ) : null}
+      <div className="overflow-hidden rounded-md border border-slate-200">
+        {steps.map((step) => (
+          <div className="grid gap-2 border-b border-slate-100 bg-white p-3 last:border-b-0" key={step.id || step.nodeId}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-950">{step.typeKey || step.nodeId}</p>
+                <p className="text-xs text-slate-500">{step.nodeId}</p>
+              </div>
+              <Badge variant="outline" className={getExecutionStatusClass(step.status)}>
+                {step.status}
+              </Badge>
+            </div>
+            {step.output && Object.keys(step.output).length ? (
+              <pre className="max-h-32 overflow-auto rounded-md bg-slate-950 p-3 text-xs leading-5 text-slate-100">
+                {JSON.stringify(step.output, null, 2)}
+              </pre>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function getExecutionStatusClass(status) {
+  if (status === 'completed') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (status === 'paused') return 'border-amber-200 bg-amber-50 text-amber-700'
+  if (status === 'failed') return 'border-red-200 bg-red-50 text-red-700'
+  if (status === 'running') return 'border-blue-200 bg-blue-50 text-blue-700'
+  if (status === 'skipped') return 'border-slate-200 bg-slate-50 text-slate-600'
+  return 'border-slate-200 bg-white text-slate-700'
 }
 
 function BuilderTips() {
