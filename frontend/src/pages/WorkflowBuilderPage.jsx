@@ -971,7 +971,7 @@ function WorkflowBuilderContent({ onNavigate }) {
     try {
       const execution = await runWorkflowDraft(workflowDraftId, {
         context: {
-          demo: true,
+          controlledExecution: true,
           replyReceived: false,
         },
       })
@@ -993,7 +993,7 @@ function WorkflowBuilderContent({ onNavigate }) {
     try {
       const execution = await resumeWorkflowExecution(workflowExecution.id, {
         context: {
-          demo: true,
+          controlledExecution: true,
           replyReceived: false,
         },
       })
@@ -1100,9 +1100,9 @@ function WorkflowBuilderContent({ onNavigate }) {
             </div>
           </div>
           <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
-            Safe demo execution
+            Controlled workflow execution
           </Badge>
-          <span className="text-xs font-medium text-slate-500">Run saved workflows with simulated waits and guarded email steps.</span>
+          <span className="text-xs font-medium text-slate-500">Run saved workflows with production safety controls enabled.</span>
         </div>
 
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-start gap-2 xl:justify-end">
@@ -1203,7 +1203,7 @@ function WorkflowBuilderContent({ onNavigate }) {
                 <PlayCircle className="h-4 w-4" aria-hidden="true" />
                 {isWorkflowExecutionLoading ? 'Running...' : 'Run Workflow'}
               </button>
-              <span className="text-xs font-medium text-emerald-700">Safe demo mode</span>
+              <span className="text-xs font-medium text-emerald-700">Safety controls enabled</span>
             </div>
           ) : null}
           <button
@@ -1430,7 +1430,7 @@ function WorkflowBuilderContent({ onNavigate }) {
         <Modal title="Workflow JSON Preview" onClose={() => setActiveModal(null)}>
           <PreviewSummary summary={workflowSummary} />
           <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-800">
-            Preview only. Run Workflow is available after saving; email steps remain guarded in safe demo mode.
+            Preview only. Run Workflow is available after saving; email steps use production safety controls.
           </div>
           <div className="max-h-72 overflow-y-auto pr-1">
             <CompatibilitySummary result={compatibilityResult} title="Local Compatibility Check" />
@@ -1477,7 +1477,7 @@ function WorkflowBuilderContent({ onNavigate }) {
       {activeModal === 'test' ? (
         <Modal title="Local Structure Test" onClose={() => setActiveModal(null)}>
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-800">
-            Local structure test only. Use Run Workflow on a saved draft for safe demo execution.
+            Local structure test only. Use Run Workflow on a saved draft for controlled execution.
           </div>
           <BlockMappingSummary compatibilityResult={compatibilityResult} nodes={nodes} />
           <div className="mt-4">
@@ -1536,7 +1536,7 @@ function ExecutionResult({ error, execution, isLoading, isResumeLoading, onResum
   return (
     <div className="grid gap-4">
       <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm font-medium text-emerald-800">
-        Safe demo execution. Approval, wait, and email steps are recorded without uncontrolled real email sending.
+        Production safety controls enabled. Approval, wait, and email steps are recorded; real email sends require live mode, approval, and a valid recipient.
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="outline" className={getExecutionStatusClass(execution.status)}>
@@ -1574,6 +1574,11 @@ function ExecutionResult({ error, execution, isLoading, isResumeLoading, onResum
                 {step.status}
               </Badge>
             </div>
+            {step.typeKey === 'action.send_approved_email' && step.output?.emailStatus ? (
+              <Badge variant="outline" className={getEmailStepStatusClass(step.output.emailStatus)}>
+                Email {step.output.emailStatus}
+              </Badge>
+            ) : null}
             {step.output && Object.keys(step.output).length ? (
               <pre className="max-h-32 overflow-auto rounded-md bg-slate-950 p-3 text-xs leading-5 text-slate-100">
                 {JSON.stringify(step.output, null, 2)}
@@ -1584,6 +1589,13 @@ function ExecutionResult({ error, execution, isLoading, isResumeLoading, onResum
       </div>
     </div>
   )
+}
+
+function getEmailStepStatusClass(status) {
+  if (status === 'sent') return 'w-fit border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (status === 'blocked') return 'w-fit border-red-200 bg-red-50 text-red-700'
+  if (status === 'mock') return 'w-fit border-amber-200 bg-amber-50 text-amber-700'
+  return 'w-fit border-slate-200 bg-white text-slate-700'
 }
 
 function getExecutionStatusClass(status) {
@@ -1601,7 +1613,7 @@ function BuilderTips() {
     'Connect each step in order.',
     'Use conditions for reply/no-reply branches.',
     'Save draft before leaving the page.',
-    'Run saved drafts in safe demo mode.',
+    'Run saved drafts with controlled execution.',
   ]
 
   return (
@@ -1626,8 +1638,8 @@ function DraftManager({ actionDraftId, currentDraftId, drafts, error, isLoading,
     <div className="grid gap-4">
       <div className="flex flex-col gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="font-semibold">Safe demo execution</p>
-          <p className="mt-1">Saved drafts can run with simulated waits, approval pauses, and guarded email steps.</p>
+          <p className="font-semibold">Controlled workflow execution</p>
+          <p className="mt-1">Saved drafts can run with approval pauses, simulated waits, and guarded email steps.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
@@ -1814,7 +1826,7 @@ function PreviewSummary({ summary }) {
     <div className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-5">
       <InfoPill label="Nodes" value={summary.nodes} />
       <InfoPill label="Edges" value={summary.edges} />
-      <InfoPill label="Mode" value="safe demo" />
+      <InfoPill label="Mode" value="controlled" />
       <InfoPill label="Execution" value="saved draft run" />
       <InfoPill label="Safety" value="guarded email steps" />
     </div>

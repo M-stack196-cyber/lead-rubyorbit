@@ -48,6 +48,8 @@ const accountSelect = `
   smtp_secret_encrypted
 `
 
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 const sentEmailSelect = `
   id,
   email_draft_id,
@@ -409,6 +411,254 @@ async function sendDraftWithClient(supabase, draft, account) {
   }
 
   return mapSentEmail(data)
+}
+
+function findPreviousWorkflowDraft(previousSteps = []) {
+  const steps = Array.isArray(previousSteps) ? previousSteps : []
+  return [...steps]
+    .reverse()
+    .find((step) => ['action.create_ai_draft', 'action.create_follow_up_draft'].includes(step.type_key || step.typeKey))
+}
+
+function getWorkflowEmailContent({ context = {}, previousSteps = [], settings = {} }) {
+  const subject = context.subject || context.emailSubject || settings.subject
+  const body = context.body || context.emailBody || settings.body
+
+  if (subject || body) {
+    return {
+      source: 'workflow_context',
+      subject: String(subject || '').trim(),
+      body: String(body || '').trim(),
+    }
+  }
+
+  const draftStep = findPreviousWorkflowDraft(previousSteps)
+  const output = draftStep?.output || {}
+
+  return {
+    source: draftStep ? draftStep.type_key || draftStep.typeKey : 'missing',
+    subject: String(output.subject || '').trim(),
+    body: String(output.body || '').trim(),
+  }
+}
+
+function hasWorkflowApproval({ context = {}, previousSteps = [] }) {
+  if (context.emailApproved === true || context.approved === true || context.approvalResumed === true) {
+    return true
+  }
+
+  return (Array.isArray(previousSteps) ? previousSteps : []).some((step) => {
+    const output = step.output || {}
+    return step.type_key === 'wait.wait_for_approval' && step.status === 'completed' && (output.approved === true || output.resumed === true)
+  })
+}
+
+async function getLeadRecipient(supabase, leadId, workspaceId) {
+  if (!leadId) return null
+
+  const { data, error } = await scopeWorkspace(
+    supabase.from('leads').select('id, name, email, company'),
+    workspaceId,
+  )
+    .eq('id', leadId)
+    .single()
+
+  if (error) {
+    if (error.code === 'PGRST116') return null
+    throw createHttpError(error.message, 500)
+  }
+
+  return data
+}
+
+async function getWorkflowEmailAccount(supabase, { context = {}, settings = {}, workspaceId } = {}) {
+  const requestedAccountId = context.emailAccountId || settings.emailAccountId
+
+  if (requestedAccountId) {
+    return getEmailAccountById(supabase, requestedAccountId)
+  }
+
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_accounts').select(accountSelect),
+    workspaceId,
+  )
+    .eq('provider', 'gmail')
+    .eq('gmail_token_status', 'connected')
+    .eq('status', 'active')
+    .eq('is_enabled', true)
+    .order('last_used_at', { ascending: true, nullsFirst: true })
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  const accounts = data || []
+  return accounts.find((account) =>
+    [account.email_address, account.gmail_email].filter(Boolean).some((email) => email.toLowerCase() === 'incdatamart@gmail.com'),
+  ) || accounts[0] || null
+}
+
+function getWorkflowRecipient({ context = {}, lead }) {
+  const email = String(context.recipientEmail || context.toEmail || lead?.email || '').trim()
+
+  return {
+    email,
+    valid: emailRegex.test(email),
+  }
+}
+
+function createBlockedWorkflowEmailOutput(blockedReasons, emailStatus) {
+  return {
+    emailStatus: 'blocked',
+    message: 'Email sending blocked by safety controls.',
+    blockedReasons,
+    emailSendMode: emailStatus.mode,
+    requestedMode: emailStatus.requestedMode,
+    liveApproved: emailStatus.liveApproved,
+    realSendingEnabled: false,
+  }
+}
+
+export async function sendWorkflowApprovedEmail({
+  supabase = getSupabaseClient(),
+  workspaceId,
+  leadId,
+  campaignId,
+  context = {},
+  settings = {},
+  previousSteps = [],
+  sender = sendGmailMessage,
+} = {}) {
+  const emailStatus = getEmailSendingStatus()
+  const content = getWorkflowEmailContent({ context, previousSteps, settings })
+  const lead = await getLeadRecipient(supabase, leadId || context.leadId, workspaceId)
+  const recipient = getWorkflowRecipient({ context, lead })
+  const approvalPresent = hasWorkflowApproval({ context, previousSteps })
+
+  if (emailStatus.requestedMode !== 'live') {
+    return {
+      status: 'completed',
+      output: {
+        emailStatus: 'mock',
+        message: 'Email prepared in mock mode. No real email sent.',
+        emailSendMode: emailStatus.mode,
+        requestedMode: emailStatus.requestedMode,
+        realSendingEnabled: false,
+        toEmail: recipient.email || null,
+        subject: content.subject || null,
+      },
+    }
+  }
+
+  const blockedReasons = []
+  if (!emailStatus.liveApproved || !emailStatus.realSendingEnabled) {
+    blockedReasons.push('EMAIL_SEND_LIVE_APPROVED is not true.')
+  }
+  if (!approvalPresent) {
+    blockedReasons.push('Workflow approval has not been recorded.')
+  }
+  if (!recipient.email) {
+    blockedReasons.push('Recipient email is missing.')
+  } else if (!recipient.valid) {
+    blockedReasons.push('Recipient email is invalid.')
+  }
+  if (!content.subject || !content.body) {
+    blockedReasons.push('Approved email subject and body are required.')
+  }
+
+  let account = null
+  if (!blockedReasons.length) {
+    account = await getWorkflowEmailAccount(supabase, { context, settings, workspaceId })
+    if (!account) {
+      blockedReasons.push('Connected Gmail account incdatamart@gmail.com or default Gmail account was not found.')
+    }
+  }
+
+  if (blockedReasons.length) {
+    return {
+      status: 'completed',
+      output: createBlockedWorkflowEmailOutput(blockedReasons, emailStatus),
+    }
+  }
+
+  validateEmailAccount(account)
+  validateLiveEmailAccount(account)
+
+  const draft = {
+    id: context.emailDraftId || null,
+    campaign_id: campaignId || context.campaignId || null,
+    lead_id: leadId || context.leadId || null,
+    campaign_lead_id: context.campaignLeadId || null,
+    subject: content.subject,
+    body: content.body,
+    status: 'approved',
+    leads: {
+      id: lead?.id || leadId || context.leadId || null,
+      name: lead?.name || null,
+      email: recipient.email,
+      company: lead?.company || null,
+    },
+  }
+
+  const reservation = await reserveSendSlot(supabase, account)
+  let providerSendSucceeded = false
+  let sendResult
+
+  try {
+    sendResult = await sender({ account, draft })
+    providerSendSucceeded = true
+  } catch (error) {
+    await releaseSendSlot(supabase, account, reservation)
+    throw error
+  }
+
+  const { data, error: insertError } = await supabase
+    .from('sent_emails')
+    .insert(withWorkspaceFields({
+      email_draft_id: draft.id,
+      campaign_id: draft.campaign_id,
+      lead_id: draft.lead_id,
+      campaign_lead_id: draft.campaign_lead_id,
+      email_account_id: account.id,
+      to_email: recipient.email,
+      from_email: account.gmail_email || account.email_address,
+      subject: draft.subject,
+      body: draft.body,
+      provider: account.provider,
+      provider_message_id: sendResult.messageId,
+      provider_thread_id: sendResult.threadId,
+      message_id: sendResult.messageId,
+      thread_id: sendResult.threadId,
+      status: 'sent',
+      sent_at: sendResult.sentAt,
+    }, workspaceId))
+    .select(sentEmailSelect)
+    .single()
+
+  if (insertError) {
+    if (!providerSendSucceeded) {
+      await releaseSendSlot(supabase, account, reservation)
+    }
+    throw createHttpError(insertError.message, insertError.code === '23505' ? 409 : 500)
+  }
+
+  return {
+    status: 'completed',
+    output: {
+      emailStatus: 'sent',
+      message: 'Email sent through controlled Gmail sending path.',
+      emailSendMode: emailStatus.mode,
+      realSendingEnabled: true,
+      sentEmailId: data.id,
+      emailAccountId: account.id,
+      provider: account.provider,
+      toEmail: recipient.email,
+      fromEmail: account.gmail_email || account.email_address,
+      messageId: sendResult.messageId,
+      threadId: sendResult.threadId,
+      sentAt: sendResult.sentAt,
+    },
+  }
 }
 
 export async function sendEmailDraft(draftId, payload = {}) {

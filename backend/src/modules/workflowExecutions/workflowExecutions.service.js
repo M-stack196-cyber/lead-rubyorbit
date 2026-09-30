@@ -1,6 +1,6 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
 import { getCurrentWorkspaceId, scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
-import { getEmailSendingStatus } from '../emailSending/emailSending.service.js'
+import { sendWorkflowApprovedEmail } from '../emailSending/emailSending.service.js'
 
 const workflowDraftSelect = `
   id,
@@ -321,7 +321,7 @@ function mergeExecutionContext(existingContext, resumeContext) {
   }
 }
 
-function executeNode(node, input) {
+async function executeNode(node, input, runtime = {}) {
   switch (node.typeKey) {
     case 'trigger.lead_added_to_campaign':
       return {
@@ -348,30 +348,17 @@ function executeNode(node, input) {
           reason: 'Waiting for teammate approval before continuing.',
         },
       }
-    case 'action.send_approved_email': {
-      const emailStatus = getEmailSendingStatus()
-      if (emailStatus.realSendingEnabled) {
-        return {
-          status: 'paused',
-          output: {
-            emailSendMode: emailStatus.mode,
-            realSendingEnabled: true,
-            message: 'Live sending is available, but workflow execution MVP will not auto-send without an explicit approved draft and account.',
-          },
-        }
-      }
-
-      return {
-        status: 'completed',
-        output: {
-          emailSendMode: emailStatus.mode,
-          realSendingEnabled: false,
-          message: 'Approved email simulated. No real email sent.',
-          safetyMessage: emailStatus.message,
-          result: 'Approved email simulated. No real email sent.',
-        },
-      }
-    }
+    case 'action.send_approved_email':
+      return sendWorkflowApprovedEmail({
+        supabase: runtime.supabase,
+        workspaceId: runtime.workspaceId,
+        leadId: input.leadId,
+        campaignId: input.campaignId,
+        context: input.context || {},
+        settings: input.settings || {},
+        previousSteps: runtime.previousSteps || [],
+        sender: runtime.emailSender,
+      })
     case 'wait.wait_days':
       return {
         status: 'completed',
@@ -430,7 +417,7 @@ export async function startWorkflowExecution(payload = {}, context = {}) {
   return mapExecution(execution)
 }
 
-async function runExecutionFromNode({ supabase, workspaceId, execution, graph, startNodeId, visitedNodeIds = [] }) {
+async function runExecutionFromNode({ supabase, workspaceId, execution, graph, startNodeId, visitedNodeIds = [], emailSender }) {
   let currentExecution = execution
   let currentNodeId = startNodeId
   const visited = new Set(visitedNodeIds)
@@ -459,8 +446,14 @@ async function runExecutionFromNode({ supabase, workspaceId, execution, graph, s
         campaignId: currentExecution.campaign_id,
         settings: node.settings || {},
       }
+      const previousSteps = await listStepRows(supabase, currentExecution.id)
       const step = await insertStep(supabase, currentExecution.id, node, input)
-      const result = executeNode(node, input)
+      const result = await executeNode(node, input, {
+        supabase,
+        workspaceId,
+        previousSteps,
+        emailSender,
+      })
       await updateStep(supabase, step.id, {
         status: result.status,
         output: result.output || {},
@@ -543,6 +536,7 @@ export async function runWorkflowExecution({ executionId } = {}, context = {}) {
     execution,
     graph,
     startNodeId: execution.current_node_id || graph.startNode.id,
+    emailSender: context.emailSender,
   })
 }
 
@@ -593,6 +587,7 @@ export async function resumeWorkflowExecution({ executionId, context: resumeCont
     graph,
     startNodeId,
     visitedNodeIds,
+    emailSender: context.emailSender,
   })
 }
 
