@@ -408,25 +408,53 @@ function WorkflowBuilderContent({ onNavigate }) {
   const applyWorkflowDraft = useCallback((draft, messageText, { dirty = false } = {}) => {
     const draftNodes = Array.isArray(draft.nodes) ? normalizeSavedNodes(draft.nodes) : createSampleNodes()
     const draftEdges = Array.isArray(draft.edges) ? normalizeSavedEdges(draft.edges) : createSampleEdges()
+    const nextEdges = applyConditionEdgeLabels(draftNodes, draftEdges)
+    const draftSummary = normalizeDraftSummary(draft)
+    const savedBackendStatus = getBackendCompatibilityStatusFromSummary(draftSummary)
+    const openedSchema = createWorkflowSchema({
+      workflowName: draft.name || draft.workflowName || defaultWorkflowName,
+      nodes: draftNodes,
+      edges: nextEdges,
+      summary: getWorkflowSummary(draftNodes, nextEdges),
+      validationStatus: draft.validationStatus || 'Warning',
+      compatibilityResult: checkWorkflowCompatibility(draftNodes, nextEdges),
+    })
+    const openedSchemaJson = JSON.stringify(openedSchema, null, 2)
+    const openedValidationSchemaJson = createBackendValidationSchemaJson(openedSchema)
+    const savedBackendResult = savedBackendStatus
+      ? createBackendCompatibilityResultFromSummary(draftSummary, openedSchema.summary)
+      : null
+    const savedBackendSnapshot = savedBackendResult && isSavedBackendValidationCurrent({
+      savedSummary: draftSummary,
+      currentValidationSchemaJson: openedValidationSchemaJson,
+      currentSummary: openedSchema.summary,
+    })
+      ? {
+          checkedAt: getBackendValidatedAtFromSummary(draftSummary),
+          result: savedBackendResult,
+          schemaJson: openedSchemaJson,
+          validationSchemaJson: openedValidationSchemaJson,
+        }
+      : null
 
     runWithoutDirty(() => {
       setWorkflowDraftId(draft.id || draft.workflowDraftId || '')
       setWorkflowName(draft.name || draft.workflowName || defaultWorkflowName)
       setNodes(draftNodes)
-      setEdges(applyConditionEdgeLabels(draftNodes, draftEdges))
+      setEdges(nextEdges)
       setSelectedNodeId('')
       setSelectedEdgeId('')
       setIsSettingsDrawerOpen(false)
-      setBackendCompatibilityResult(null)
-      setBackendCompatibilityCheckedAt('')
-      setBackendCompatibilitySchemaJson('')
-      setBackendCompatibilityValidationSchemaJson('')
-      setIsBackendValidationStale(false)
+      setBackendCompatibilityResult(savedBackendSnapshot?.result || null)
+      setBackendCompatibilityCheckedAt(savedBackendSnapshot?.checkedAt || '')
+      setBackendCompatibilitySchemaJson(savedBackendSnapshot?.schemaJson || '')
+      setBackendCompatibilityValidationSchemaJson(savedBackendSnapshot?.validationSchemaJson || '')
+      setIsBackendValidationStale(Boolean(savedBackendResult && !savedBackendSnapshot))
       setBackendCompatibilityError('')
       setSavedDraftSummary(draft.summary || null)
       setMessage(messageText)
     }, { dirty })
-    backendCompatibilitySnapshotRef.current = null
+    backendCompatibilitySnapshotRef.current = savedBackendSnapshot
   }, [runWithoutDirty])
 
   useEffect(() => {
@@ -885,13 +913,18 @@ function WorkflowBuilderContent({ onNavigate }) {
       const checkedAt = new Date().toISOString()
       const validationSchemaJson = createBackendValidationSchemaJson(workflowSchema)
 
+      const backendResultSnapshot = {
+        ...backendResult,
+        validationSchemaJson,
+      }
+
       backendCompatibilitySnapshotRef.current = {
         checkedAt,
-        result: backendResult,
+        result: backendResultSnapshot,
         schemaJson: previewJson,
         validationSchemaJson,
       }
-      setBackendCompatibilityResult(backendResult)
+      setBackendCompatibilityResult(backendResultSnapshot)
       setBackendCompatibilityCheckedAt(checkedAt)
       setBackendCompatibilitySchemaJson(previewJson)
       setBackendCompatibilityValidationSchemaJson(validationSchemaJson)
@@ -1318,6 +1351,7 @@ function WorkflowBuilderContent({ onNavigate }) {
             error={backendCompatibilityError}
             isLoading={isBackendCompatibilityLoading}
             onCheck={handleBackendCompatibilityCheck}
+            checkedAt={backendCompatibilityCheckedAt}
             result={currentBackendCompatibilityResult}
             savedStatus={savedBackendCompatibilityStatus}
             savedValidatedAt={savedBackendValidatedAt}
@@ -1338,6 +1372,7 @@ function WorkflowBuilderContent({ onNavigate }) {
             error={backendCompatibilityError}
             isLoading={isBackendCompatibilityLoading}
             onCheck={handleBackendCompatibilityCheck}
+            checkedAt={backendCompatibilityCheckedAt}
             result={currentBackendCompatibilityResult}
             savedStatus={savedBackendCompatibilityStatus}
             savedValidatedAt={savedBackendValidatedAt}
@@ -1532,7 +1567,11 @@ function DraftManager({ actionDraftId, currentDraftId, drafts, error, isLoading,
                 <DraftMeta label="Mode" value={draft.mode || 'visual-only'} />
                 <DraftMeta label="Validation" value={draft.validationStatus || 'Warning'} />
                 <DraftMeta label="Local compat" value={getDraftLocalCompatibilityStatus(draft)} />
-                <DraftMeta label="Backend compat" value={getDraftBackendCompatibilityStatus(draft)} />
+                <DraftMeta
+                  label="Backend compat"
+                  value={getDraftBackendCompatibilityStatus(draft)}
+                  note={getDraftBackendStatusValue(draft) ? 'Saved backend check' : ''}
+                />
                 <DraftMeta label="Size" value={`${getDraftNodeCount(draft)} nodes / ${getDraftEdgeCount(draft)} edges`} />
                 <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
                   <button
@@ -1568,11 +1607,12 @@ function DraftManager({ actionDraftId, currentDraftId, drafts, error, isLoading,
   )
 }
 
-function DraftMeta({ label, value }) {
+function DraftMeta({ label, note = '', value }) {
   return (
     <div>
       <p className="text-[0.68rem] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
       <p className="mt-1 text-sm font-semibold text-slate-800">{value}</p>
+      {note ? <p className="mt-1 text-[0.68rem] font-semibold text-emerald-700">{note}</p> : null}
     </div>
   )
 }
@@ -1657,7 +1697,7 @@ function CompatibilitySummary({
   )
 }
 
-function BackendSchemaCheck({ error, isLoading, onCheck, result, savedStatus, savedValidatedAt }) {
+function BackendSchemaCheck({ checkedAt = '', error, isLoading, onCheck, result, savedStatus, savedValidatedAt }) {
   return (
     <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 p-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1685,6 +1725,16 @@ function BackendSchemaCheck({ error, isLoading, onCheck, result, savedStatus, sa
       {!result && savedStatus ? (
         <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
           Saved backend status: {savedStatus} from last save{savedValidatedAt ? ` (${formatDraftDate(savedValidatedAt)})` : ''}. Run Check with Backend to refresh.
+        </p>
+      ) : null}
+      {!result && !savedStatus && !isLoading ? (
+        <p className="mt-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600">
+          Backend status: Not checked.
+        </p>
+      ) : null}
+      {result && checkedAt ? (
+        <p className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+          Backend checked {formatDraftDate(checkedAt)}.
         </p>
       ) : null}
       {result ? (
@@ -1744,6 +1794,38 @@ function getBackendCompatibilityStatusFromSummary(summary) {
 
 function getBackendValidatedAtFromSummary(summary) {
   return summary.backendValidatedAt || ''
+}
+
+function createBackendCompatibilityResultFromSummary(summary, currentSummary = {}) {
+  const status = getBackendCompatibilityStatusFromSummary(summary)
+  if (!status) return null
+
+  const backendSummary = summary.backendValidationSummary && typeof summary.backendValidationSummary === 'object'
+    ? summary.backendValidationSummary
+    : currentSummary
+
+  return {
+    status,
+    checks: [],
+    summary: pickWorkflowValidationSummary(backendSummary),
+    validationSchemaJson: summary.backendValidationSchemaJson || '',
+  }
+}
+
+function isSavedBackendValidationCurrent({ currentSummary, currentValidationSchemaJson, savedSummary }) {
+  if (!getBackendCompatibilityStatusFromSummary(savedSummary)) return false
+  if (savedSummary.backendValidationSchemaJson) {
+    return savedSummary.backendValidationSchemaJson === currentValidationSchemaJson
+  }
+
+  const savedValidationSummary = savedSummary.backendValidationSummary
+  if (!savedValidationSummary || typeof savedValidationSummary !== 'object' || Array.isArray(savedValidationSummary)) {
+    return false
+  }
+
+  return ['nodes', 'edges', 'triggers', 'actions', 'waits', 'conditions'].every(
+    (key) => Number(savedValidationSummary[key] || 0) === Number(currentSummary?.[key] || 0),
+  )
 }
 
 function getDraftLocalCompatibilityStatus(draft) {
@@ -2295,6 +2377,9 @@ function createWorkflowSummarySnapshot({ backendCompatibilityCheckedAt, backendC
     snapshot.backendCompatibilityStatus = backendCompatibilityResult.status || null
     snapshot.backendValidatedAt = backendCompatibilityCheckedAt || new Date().toISOString()
     snapshot.backendValidationSummary = pickWorkflowValidationSummary(backendCompatibilityResult.summary)
+    if (backendCompatibilityResult.validationSchemaJson) {
+      snapshot.backendValidationSchemaJson = backendCompatibilityResult.validationSchemaJson
+    }
   }
 
   return snapshot
