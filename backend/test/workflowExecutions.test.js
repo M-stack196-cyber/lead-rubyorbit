@@ -5,7 +5,10 @@ import { afterEach, test } from 'node:test'
 import { createApp } from '../src/app.js'
 import { env } from '../src/config/env.js'
 import {
+  cancelWorkflowExecution,
+  resumeDueWorkflowExecutions,
   resumeWorkflowExecution,
+  retryWorkflowExecution,
   runWorkflowExecution,
   startWorkflowExecution,
   triggerLeadAddedToCampaignWorkflows,
@@ -172,6 +175,7 @@ function createMockSupabase({
     const state = {
       filters: [],
       ltFilters: [],
+      lteFilters: [],
       insertValues: null,
       updateValues: null,
     }
@@ -189,6 +193,11 @@ function createMockSupabase({
       lt(field, value) {
         state.ltFilters.push([field, value])
         calls.push(['lt', table, field, value])
+        return query
+      },
+      lte(field, value) {
+        state.lteFilters.push([field, value])
+        calls.push(['lte', table, field, value])
         return query
       },
       maybeSingle() {
@@ -226,6 +235,7 @@ function createMockSupabase({
     function matches(row) {
       return state.filters.every(([field, value]) => fieldValue(row, field) === value)
         && state.ltFilters.every(([field, value]) => Number(fieldValue(row, field) || 0) < Number(value))
+        && state.lteFilters.every(([field, value]) => String(fieldValue(row, field) || '') <= String(value))
     }
 
     function defaultsForInsert(values) {
@@ -237,6 +247,10 @@ function createMockSupabase({
           started_at: now(),
           completed_at: null,
           error_message: null,
+          scheduled_resume_at: null,
+          pause_reason: null,
+          retry_count: 0,
+          canceled_at: null,
           context: {},
           created_at: now(),
           updated_at: now(),
@@ -350,8 +364,8 @@ function createMockSupabase({
 async function startAndRun(supabase, payload = {}) {
   const execution = await startWorkflowExecution({
     workflowDraftId: 'workflow-1',
-    context: {},
     ...payload,
+    context: { forceImmediateWait: true, ...(payload.context || {}) },
   }, {
     supabase,
     workspaceId: 'workspace-1',
@@ -951,7 +965,8 @@ test('active workflow auto-triggers when lead is added to campaign', async () =>
   })
 
   assert.equal(executions.length, 1)
-  assert.equal(executions[0].status, 'completed')
+  assert.equal(executions[0].status, 'paused')
+  assert.equal(executions[0].pauseReason, 'scheduled_wait')
   assert.equal(executions[0].context.autoTriggered, true)
   assert.equal(executions[0].context.triggerSource, 'lead_added_to_campaign')
   assert.equal(executions[0].context.recipientEmail, 'lead@example.com')
@@ -1052,4 +1067,216 @@ test('send approved email uses persisted draft subject and body when available',
   assert.equal(sendStep.output.emailStatus, 'sent')
   assert.equal(sendStep.output.emailDraftId, persistedDraft.id)
   assert.equal(supabase.tables.sent_emails[0].subject, 'Persisted controlled subject')
+})
+
+test('wait_days schedules execution instead of completing immediately', async () => {
+  const supabase = createMockSupabase()
+
+  const started = await startWorkflowExecution({
+    workflowDraftId: 'workflow-1',
+    context: {},
+  }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+  const execution = await runWorkflowExecution({ executionId: started.id }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+  const waitStep = execution.steps.find((step) => step.typeKey === 'wait.wait_days')
+
+  assert.equal(execution.status, 'paused')
+  assert.equal(execution.pauseReason, 'scheduled_wait')
+  assert.equal(execution.currentNodeId, 'wait-1')
+  assert.ok(execution.scheduledResumeAt)
+  assert.equal(waitStep.status, 'paused')
+  assert.equal(waitStep.output.message, 'Scheduled wait')
+  assert.ok(waitStep.output.scheduledResumeAt)
+})
+
+test('forceImmediateWait keeps fast completion path for tests and QA', async () => {
+  const supabase = createMockSupabase()
+  const execution = await startAndRun(supabase, { context: { forceImmediateWait: true } })
+  const waitStep = execution.steps.find((step) => step.typeKey === 'wait.wait_days')
+
+  assert.equal(execution.status, 'completed')
+  assert.equal(waitStep.status, 'completed')
+  assert.equal(waitStep.output.message, 'Simulated wait')
+  assert.equal(waitStep.output.forceImmediateWait, true)
+})
+
+test('resume-due continues due scheduled wait', async () => {
+  const supabase = createMockSupabase({
+    workflowDrafts: [createWorkflowDraftRow({
+      nodes: [
+        createNode('trigger-1', 'trigger.lead_added_to_campaign', 'Trigger'),
+        createNode('wait-1', 'wait.wait_days', 'Wait', { duration: 1, unit: 'days' }),
+        createNode('team-1', 'action.create_team_decision', 'Action'),
+      ],
+      edges: [
+        { id: 'edge-1', source: 'trigger-1', target: 'wait-1', label: '' },
+        { id: 'edge-2', source: 'wait-1', target: 'team-1', label: '' },
+      ],
+    })],
+  })
+
+  const started = await startWorkflowExecution({ workflowDraftId: 'workflow-1', context: {} }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+  const paused = await runWorkflowExecution({ executionId: started.id }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+  supabase.tables.workflow_executions[0].scheduled_resume_at = '2026-09-30T11:00:00.000Z'
+
+  const summary = await resumeDueWorkflowExecutions({ now: '2026-09-30T12:00:00.000Z' }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+  const resumed = summary.executions[0]
+
+  assert.equal(paused.status, 'paused')
+  assert.equal(summary.processed, 1)
+  assert.equal(summary.completed, 1)
+  assert.equal(resumed.status, 'completed')
+  assert.deepEqual(resumed.steps.map((step) => step.nodeId), ['trigger-1', 'wait-1', 'team-1'])
+  assert.equal(resumed.steps[1].status, 'completed')
+  assert.equal(resumed.steps[1].output.resumed, true)
+})
+
+test('resume-due skips not-yet-due scheduled executions', async () => {
+  const supabase = createMockSupabase()
+  const started = await startWorkflowExecution({ workflowDraftId: 'workflow-1', context: {} }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+  await runWorkflowExecution({ executionId: started.id }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+  supabase.tables.workflow_executions[0].scheduled_resume_at = '2026-10-01T12:00:00.000Z'
+
+  const summary = await resumeDueWorkflowExecutions({ now: '2026-09-30T12:00:00.000Z' }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+
+  assert.equal(summary.processed, 0)
+  assert.equal(summary.completed, 0)
+  assert.equal(supabase.tables.workflow_executions[0].status, 'paused')
+})
+
+test('cancel paused execution prevents continuation', async () => {
+  const supabase = createMockSupabase()
+  const started = await startWorkflowExecution({ workflowDraftId: 'workflow-1', context: {} }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+  const paused = await runWorkflowExecution({ executionId: started.id }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+
+  const canceled = await cancelWorkflowExecution({ executionId: paused.id }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+  const summary = await resumeDueWorkflowExecutions({ now: '2026-10-02T12:00:00.000Z' }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+
+  assert.equal(canceled.status, 'canceled')
+  assert.ok(canceled.canceledAt)
+  assert.equal(summary.processed, 0)
+})
+
+test('retry failed execution increments retry_count', async () => {
+  const supabase = createMockSupabase({
+    workflowDrafts: [createWorkflowDraftRow({
+      nodes: [
+        createNode('trigger-1', 'trigger.lead_added_to_campaign', 'Trigger'),
+        createNode('team-1', 'action.create_team_decision', 'Action'),
+      ],
+      edges: [
+        { id: 'edge-1', source: 'trigger-1', target: 'team-1', label: '' },
+      ],
+    })],
+    workflowExecutions: [{
+      id: 'execution-failed',
+      workspace_id: 'workspace-1',
+      workflow_draft_id: 'workflow-1',
+      lead_id: null,
+      campaign_id: null,
+      status: 'failed',
+      current_node_id: 'team-1',
+      started_at: '2026-09-30T12:00:00.000Z',
+      completed_at: '2026-09-30T12:01:00.000Z',
+      scheduled_resume_at: null,
+      pause_reason: null,
+      retry_count: 0,
+      canceled_at: null,
+      error_message: 'Transient failure',
+      context: { forceImmediateWait: true },
+      created_at: '2026-09-30T12:00:00.000Z',
+      updated_at: '2026-09-30T12:01:00.000Z',
+    }],
+  })
+
+  const retried = await retryWorkflowExecution({ executionId: 'execution-failed' }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+
+  assert.equal(retried.status, 'completed')
+  assert.equal(retried.retryCount, 1)
+  assert.equal(retried.steps.at(-1).nodeId, 'team-1')
+})
+
+test('retry does not duplicate email send', async () => {
+  const supabase = createMockSupabase({
+    workflowDrafts: [createApprovedSendWorkflow()],
+    workflowExecutions: [{
+      id: 'execution-email-sent',
+      workspace_id: 'workspace-1',
+      workflow_draft_id: 'workflow-1',
+      lead_id: 'lead-1',
+      campaign_id: 'campaign-1',
+      status: 'failed',
+      current_node_id: 'send-1',
+      started_at: '2026-09-30T12:00:00.000Z',
+      completed_at: '2026-09-30T12:01:00.000Z',
+      scheduled_resume_at: null,
+      pause_reason: null,
+      retry_count: 0,
+      canceled_at: null,
+      error_message: 'Post-send failure',
+      context: {},
+      created_at: '2026-09-30T12:00:00.000Z',
+      updated_at: '2026-09-30T12:01:00.000Z',
+    }],
+  })
+  supabase.tables.workflow_execution_steps.push({
+    id: 'step-send',
+    execution_id: 'execution-email-sent',
+    node_id: 'send-1',
+    node_type: 'Action',
+    type_key: 'action.send_approved_email',
+    status: 'completed',
+    input: {},
+    output: { emailStatus: 'sent', sentEmailId: 'sent-email-1' },
+    error_message: null,
+    started_at: '2026-09-30T12:00:00.000Z',
+    completed_at: '2026-09-30T12:01:00.000Z',
+    created_at: '2026-09-30T12:00:00.000Z',
+  })
+
+  await assert.rejects(
+    retryWorkflowExecution({ executionId: 'execution-email-sent' }, {
+      supabase,
+      workspaceId: 'workspace-1',
+    }),
+    /already sent an email/,
+  )
 })

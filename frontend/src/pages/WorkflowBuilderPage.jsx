@@ -52,10 +52,12 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import {
+  cancelWorkflowExecution,
   createWorkflowDraft,
   deleteWorkflowDraft,
   getWorkflowDrafts,
   resumeWorkflowExecution,
+  retryWorkflowExecution,
   runWorkflowDraft,
   updateWorkflowDraft,
   validateWorkflowSchema,
@@ -333,6 +335,8 @@ function WorkflowBuilderContent({ onNavigate }) {
   const [workflowExecutionError, setWorkflowExecutionError] = useState('')
   const [isWorkflowExecutionLoading, setIsWorkflowExecutionLoading] = useState(false)
   const [isWorkflowResumeLoading, setIsWorkflowResumeLoading] = useState(false)
+  const [isWorkflowCancelLoading, setIsWorkflowCancelLoading] = useState(false)
+  const [isWorkflowRetryLoading, setIsWorkflowRetryLoading] = useState(false)
   const [workflowRunRecipientEmail, setWorkflowRunRecipientEmail] = useState('')
 
   const selectedNode = useMemo(
@@ -1041,6 +1045,40 @@ function WorkflowBuilderContent({ onNavigate }) {
     }
   }
 
+  async function handleCancelWorkflowExecution() {
+    if (!workflowExecution?.id || !['running', 'paused'].includes(workflowExecution.status)) return
+
+    setIsWorkflowCancelLoading(true)
+    setWorkflowExecutionError('')
+
+    try {
+      const execution = await cancelWorkflowExecution(workflowExecution.id)
+      setWorkflowExecution(execution)
+      setMessage('Workflow execution canceled.')
+    } catch (error) {
+      setWorkflowExecutionError(error.message || 'Could not cancel workflow execution.')
+    } finally {
+      setIsWorkflowCancelLoading(false)
+    }
+  }
+
+  async function handleRetryWorkflowExecution() {
+    if (!workflowExecution?.id || workflowExecution.status !== 'failed') return
+
+    setIsWorkflowRetryLoading(true)
+    setWorkflowExecutionError('')
+
+    try {
+      const execution = await retryWorkflowExecution(workflowExecution.id)
+      setWorkflowExecution(execution)
+      setMessage('Workflow execution retry finished with status: ' + execution.status + '.')
+    } catch (error) {
+      setWorkflowExecutionError(error.message || 'Could not retry workflow execution.')
+    } finally {
+      setIsWorkflowRetryLoading(false)
+    }
+  }
+
   function handleCenterView() {
     flowInstance?.fitView({ padding: 0.2, duration: 500 })
   }
@@ -1529,9 +1567,13 @@ function WorkflowBuilderContent({ onNavigate }) {
           <ExecutionResult
             error={workflowExecutionError}
             execution={workflowExecution}
+            isCancelLoading={isWorkflowCancelLoading}
             isLoading={isWorkflowExecutionLoading}
             isResumeLoading={isWorkflowResumeLoading}
+            isRetryLoading={isWorkflowRetryLoading}
+            onCancel={handleCancelWorkflowExecution}
             onResume={handleResumeWorkflow}
+            onRetry={handleRetryWorkflowExecution}
           />
         </Modal>
       ) : null}
@@ -1572,7 +1614,7 @@ function WorkflowSummaryCards({ summary }) {
   )
 }
 
-function ExecutionResult({ error, execution, isLoading, isResumeLoading, onResume }) {
+function ExecutionResult({ error, execution, isCancelLoading, isLoading, isResumeLoading, isRetryLoading, onCancel, onResume, onRetry }) {
   if (isLoading) {
     return (
       <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-700">
@@ -1594,6 +1636,8 @@ function ExecutionResult({ error, execution, isLoading, isResumeLoading, onResum
   }
 
   const steps = Array.isArray(execution.steps) ? execution.steps : []
+  const scheduledWaitStep = steps.find((step) => step.typeKey === 'wait.wait_days' && step.output?.scheduledResumeAt)
+  const scheduledResumeAt = execution.scheduledResumeAt || scheduledWaitStep?.output?.scheduledResumeAt || ''
   const recipientEmail = execution.context?.recipientEmail
     || steps.find((step) => step.output?.toEmail)?.output?.toEmail
     || steps.find((step) => step.output?.recipientEmail)?.output?.recipientEmail
@@ -1611,12 +1655,23 @@ function ExecutionResult({ error, execution, isLoading, isResumeLoading, onResum
           </Badge>
         ) : null}
         <Badge variant="outline" className={getExecutionStatusClass(execution.status)}>
-          {execution.status}
+          {getExecutionStatusLabel(execution)}
         </Badge>
         <span className="text-sm font-medium text-slate-600">
           {steps.length} step{steps.length === 1 ? '' : 's'}
         </span>
-        {execution.status === 'paused' ? (
+        {scheduledResumeAt ? (
+          <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+            Scheduled {formatDraftDate(scheduledResumeAt)}
+          </Badge>
+        ) : null}
+        {execution.retryCount ? (
+          <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+            Retried {execution.retryCount}
+          </Badge>
+        ) : null}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+        {execution.status === 'paused' && execution.pauseReason !== 'scheduled_wait' ? (
           <button
             className="ml-auto inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
@@ -1627,6 +1682,29 @@ function ExecutionResult({ error, execution, isLoading, isResumeLoading, onResum
             {isResumeLoading ? 'Resuming...' : 'Resume Workflow'}
           </button>
         ) : null}
+        {['running', 'paused'].includes(execution.status) ? (
+          <button
+            className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={onCancel}
+            disabled={isCancelLoading}
+          >
+            <StopCircle className="h-4 w-4" aria-hidden="true" />
+            {isCancelLoading ? 'Canceling...' : 'Cancel Execution'}
+          </button>
+        ) : null}
+        {execution.status === 'failed' ? (
+          <button
+            className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 shadow-sm transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            onClick={onRetry}
+            disabled={isRetryLoading}
+          >
+            <RefreshCcw className="h-4 w-4" aria-hidden="true" />
+            {isRetryLoading ? 'Retrying...' : 'Retry Execution'}
+          </button>
+        ) : null}
+        </div>
       </div>
       {execution.errorMessage ? (
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm font-medium text-red-700">
@@ -1645,6 +1723,11 @@ function ExecutionResult({ error, execution, isLoading, isResumeLoading, onResum
                 {step.status}
               </Badge>
             </div>
+            {step.typeKey === 'wait.wait_days' && step.output?.scheduledResumeAt ? (
+              <Badge variant="outline" className="w-fit border-amber-200 bg-amber-50 text-amber-700">
+                Scheduled wait until {formatDraftDate(step.output.scheduledResumeAt)}
+              </Badge>
+            ) : null}
             {step.typeKey === 'action.send_approved_email' && step.output?.emailStatus ? (
               <Badge variant="outline" className={getEmailStepStatusClass(step.output.emailStatus)}>
                 Email {step.output.emailStatus}
@@ -1662,6 +1745,12 @@ function ExecutionResult({ error, execution, isLoading, isResumeLoading, onResum
   )
 }
 
+function getExecutionStatusLabel(execution) {
+  if (execution.status === 'paused' && execution.pauseReason === 'scheduled_wait') return 'Scheduled wait'
+  if (execution.status === 'canceled') return 'Canceled'
+  return execution.status
+}
+
 function getEmailStepStatusClass(status) {
   if (status === 'sent') return 'w-fit border-emerald-200 bg-emerald-50 text-emerald-700'
   if (status === 'blocked') return 'w-fit border-red-200 bg-red-50 text-red-700'
@@ -1673,6 +1762,7 @@ function getExecutionStatusClass(status) {
   if (status === 'completed') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
   if (status === 'paused') return 'border-amber-200 bg-amber-50 text-amber-700'
   if (status === 'failed') return 'border-red-200 bg-red-50 text-red-700'
+  if (status === 'canceled') return 'border-slate-300 bg-slate-100 text-slate-700'
   if (status === 'running') return 'border-blue-200 bg-blue-50 text-blue-700'
   if (status === 'skipped') return 'border-slate-200 bg-slate-50 text-slate-600'
   return 'border-slate-200 bg-white text-slate-700'

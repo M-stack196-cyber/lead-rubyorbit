@@ -739,6 +739,24 @@ export async function resumeWorkflowExecution(executionId, payload = {}) {
   return parsedPayload.data
 }
 
+export async function cancelWorkflowExecution(executionId) {
+  const response = await fetch(API_BASE_URL + '/api/workflow-executions/' + executionId + '/cancel', {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
+export async function retryWorkflowExecution(executionId) {
+  const response = await fetch(API_BASE_URL + '/api/workflow-executions/' + executionId + '/retry', {
+    method: 'POST',
+  })
+
+  const payload = await parseApiResponse(response)
+  return payload.data
+}
+
 export async function getTeamMembers() {
   const response = await fetch(`${API_BASE_URL}/api/team-members`)
 

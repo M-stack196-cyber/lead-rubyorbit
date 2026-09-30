@@ -27,6 +27,10 @@ const executionSelect = `
   current_node_id,
   started_at,
   completed_at,
+  scheduled_resume_at,
+  pause_reason,
+  retry_count,
+  canceled_at,
   error_message,
   context,
   created_at,
@@ -154,6 +158,10 @@ function mapExecution(row, steps = []) {
     currentNodeId: row.current_node_id,
     startedAt: row.started_at,
     completedAt: row.completed_at,
+    scheduledResumeAt: row.scheduled_resume_at,
+    pauseReason: row.pause_reason,
+    retryCount: row.retry_count || 0,
+    canceledAt: row.canceled_at,
     errorMessage: row.error_message,
     context: row.context || {},
     createdAt: row.created_at,
@@ -418,6 +426,10 @@ async function insertExecution(supabase, payload, workspaceId) {
       campaign_id: payload.campaignId || null,
       status: 'running',
       current_node_id: null,
+      scheduled_resume_at: null,
+      pause_reason: null,
+      retry_count: 0,
+      canceled_at: null,
       context: payload.context,
     }, workspaceId))
     .select(executionSelect)
@@ -502,6 +514,21 @@ function mergeExecutionContext(existingContext, resumeContext) {
   }
 }
 
+function getWaitDaysSettings(node) {
+  const settings = node.settings || {}
+  const rawDuration = settings.duration ?? settings.days ?? settings.value ?? 1
+  const days = Math.max(Number(rawDuration) || 1, 0)
+  return {
+    days,
+    unit: settings.unit || 'days',
+  }
+}
+
+function getScheduledResumeAt(node, now = new Date()) {
+  const { days } = getWaitDaysSettings(node)
+  return new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString()
+}
+
 async function executeNode(node, input, runtime = {}) {
   switch (node.typeKey) {
     case 'trigger.lead_added_to_campaign':
@@ -559,15 +586,34 @@ async function executeNode(node, input, runtime = {}) {
         previousSteps: runtime.previousSteps || [],
         sender: runtime.emailSender,
       })
-    case 'wait.wait_days':
+    case 'wait.wait_days': {
+      const waitSettings = getWaitDaysSettings(node)
+
+      if (input.context?.forceImmediateWait === true) {
+        return {
+          status: 'completed',
+          output: {
+            message: 'Simulated wait',
+            duration: waitSettings.days,
+            unit: waitSettings.unit,
+            forceImmediateWait: true,
+          },
+        }
+      }
+
       return {
-        status: 'completed',
+        status: 'paused',
+        pauseReason: 'scheduled_wait',
+        scheduledResumeAt: getScheduledResumeAt(node),
         output: {
-          message: 'Simulated wait',
-          duration: node.settings?.duration || null,
-          unit: node.settings?.unit || 'days',
+          message: 'Scheduled wait',
+          pauseReason: 'scheduled_wait',
+          scheduledResumeAt: getScheduledResumeAt(node),
+          duration: waitSettings.days,
+          unit: waitSettings.unit,
         },
       }
+    }
     case 'condition.reply_received':
       return {
         status: 'completed',
@@ -646,6 +692,9 @@ async function runExecutionFromNode({ supabase, workspaceId, execution, graph, s
       currentExecution = await updateExecution(supabase, currentExecution.id, {
         status: 'running',
         current_node_id: node.id,
+        scheduled_resume_at: null,
+        pause_reason: null,
+        canceled_at: null,
         error_message: null,
       }, workspaceId)
 
@@ -668,13 +717,15 @@ async function runExecutionFromNode({ supabase, workspaceId, execution, graph, s
         status: result.status,
         output: result.output || {},
         error_message: null,
-        completed_at: new Date().toISOString(),
+        completed_at: result.status === 'paused' ? null : new Date().toISOString(),
       })
 
       if (result.status === 'paused') {
         await updateExecution(supabase, currentExecution.id, {
           status: 'paused',
           current_node_id: node.id,
+          scheduled_resume_at: result.scheduledResumeAt || null,
+          pause_reason: result.pauseReason || (node.typeKey === 'wait.wait_for_approval' ? 'approval' : null),
           completed_at: null,
           error_message: null,
         }, workspaceId)
@@ -688,12 +739,16 @@ async function runExecutionFromNode({ supabase, workspaceId, execution, graph, s
     await updateExecution(supabase, currentExecution.id, {
       status: 'completed',
       current_node_id: null,
+      scheduled_resume_at: null,
+      pause_reason: null,
       completed_at: new Date().toISOString(),
       error_message: null,
     }, workspaceId)
   } catch (error) {
     await updateExecution(supabase, currentExecution.id, {
       status: 'failed',
+      scheduled_resume_at: null,
+      pause_reason: null,
       error_message: error.message,
       completed_at: new Date().toISOString(),
     }, workspaceId)
@@ -776,9 +831,15 @@ export async function resumeWorkflowExecution({ executionId, context: resumeCont
   execution = await updateExecution(supabase, executionId, {
     status: 'running',
     context: mergedContext,
+    scheduled_resume_at: null,
+    pause_reason: null,
     completed_at: null,
     error_message: null,
   }, workspaceId)
+
+  if (currentNode.typeKey === 'wait.wait_days' || execution.pause_reason === 'scheduled_wait') {
+    throw createHttpError('Scheduled waits resume through resume-due processing.', 400)
+  }
 
   let startNodeId = currentNodeId
   const visitedNodeIds = []
@@ -877,6 +938,184 @@ export async function triggerLeadAddedToCampaignWorkflows({ leadId, campaignId }
   }
 
   return executions
+}
+
+async function markScheduledWaitResumed(supabase, executionId, currentNodeId) {
+  const steps = await listStepRows(supabase, executionId)
+  const waitStep = [...steps]
+    .reverse()
+    .find((step) => step.node_id === currentNodeId && step.type_key === 'wait.wait_days' && step.status === 'paused')
+
+  if (!waitStep) return
+
+  await updateStep(supabase, waitStep.id, {
+    status: 'completed',
+    output: {
+      ...(waitStep.output || {}),
+      resumed: true,
+      message: 'Scheduled wait completed. Workflow resumed.',
+    },
+    error_message: null,
+    completed_at: new Date().toISOString(),
+  })
+}
+
+async function resumeScheduledWaitExecution(supabase, execution, workspaceId, context = {}) {
+  const draft = await getWorkflowDraftById(supabase, execution.workflow_draft_id, workspaceId)
+  const graph = buildGraph(draft)
+  const currentNode = graph.nodeById.get(execution.current_node_id)
+
+  if (!currentNode) {
+    throw createHttpError('Scheduled workflow current node was not found in draft.', 400)
+  }
+
+  await markScheduledWaitResumed(supabase, execution.id, currentNode.id)
+
+  const outgoing = graph.outgoingByNodeId.get(currentNode.id) || []
+  const startNodeId = selectNextNodeId(currentNode, outgoing, execution.context || {})
+  const runningExecution = await updateExecution(supabase, execution.id, {
+    status: 'running',
+    scheduled_resume_at: null,
+    pause_reason: null,
+    completed_at: null,
+    error_message: null,
+  }, workspaceId)
+
+  return runExecutionFromNode({
+    supabase,
+    workspaceId,
+    execution: runningExecution,
+    graph,
+    startNodeId,
+    visitedNodeIds: [currentNode.id],
+    emailSender: context.emailSender,
+  })
+}
+
+async function listDueScheduledExecutions(supabase, workspaceId, nowIso) {
+  const { data, error } = await scopeWorkspace(
+    supabase.from('workflow_executions').select(executionSelect),
+    workspaceId,
+  )
+    .eq('status', 'paused')
+    .eq('pause_reason', 'scheduled_wait')
+    .lte('scheduled_resume_at', nowIso)
+    .order('scheduled_resume_at', { ascending: true })
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  return data || []
+}
+
+export async function resumeDueWorkflowExecutions(payload = {}, context = {}) {
+  const supabase = getClient(context)
+  const workspaceId = getWorkspaceId(context)
+  const nowIso = payload.now || new Date().toISOString()
+  const dueExecutions = await listDueScheduledExecutions(supabase, workspaceId, nowIso)
+  const summary = {
+    processed: 0,
+    completed: 0,
+    failed: 0,
+    skipped: 0,
+    executions: [],
+  }
+
+  for (const execution of dueExecutions) {
+    summary.processed += 1
+
+    try {
+      const result = await resumeScheduledWaitExecution(supabase, execution, workspaceId, context)
+      if (result.status === 'completed') summary.completed += 1
+      else if (result.status === 'failed') summary.failed += 1
+      else summary.skipped += 1
+      summary.executions.push(result)
+    } catch (error) {
+      summary.failed += 1
+      await updateExecution(supabase, execution.id, {
+        status: 'failed',
+        error_message: error.message,
+        completed_at: new Date().toISOString(),
+      }, workspaceId)
+    }
+  }
+
+  return summary
+}
+
+export async function cancelWorkflowExecution({ executionId } = {}, context = {}) {
+  if (!executionId) {
+    throw createHttpError('executionId is required.')
+  }
+
+  const supabase = getClient(context)
+  const workspaceId = getWorkspaceId(context)
+  const execution = await getExecutionRow(supabase, executionId, workspaceId)
+
+  if (!['running', 'paused'].includes(execution.status)) {
+    throw createHttpError('Only running or paused workflow executions can be canceled.', 400)
+  }
+
+  const canceled = await updateExecution(supabase, executionId, {
+    status: 'canceled',
+    scheduled_resume_at: null,
+    pause_reason: null,
+    canceled_at: new Date().toISOString(),
+    completed_at: new Date().toISOString(),
+    error_message: null,
+  }, workspaceId)
+
+  return getExecutionWithSteps(supabase, canceled.id, workspaceId)
+}
+
+function hasSentEmailStep(steps = []) {
+  return steps.some((step) =>
+    (step.type_key || step.typeKey) === 'action.send_approved_email'
+      && step.status === 'completed'
+      && step.output?.emailStatus === 'sent',
+  )
+}
+
+export async function retryWorkflowExecution({ executionId } = {}, context = {}) {
+  if (!executionId) {
+    throw createHttpError('executionId is required.')
+  }
+
+  const supabase = getClient(context)
+  const workspaceId = getWorkspaceId(context)
+  const execution = await getExecutionRow(supabase, executionId, workspaceId)
+
+  if (execution.status !== 'failed') {
+    throw createHttpError('Only failed workflow executions can be retried.', 400)
+  }
+
+  const steps = await listStepRows(supabase, executionId)
+  if (hasSentEmailStep(steps)) {
+    throw createHttpError('Retry blocked because this execution already sent an email.', 409)
+  }
+
+  const draft = await getWorkflowDraftById(supabase, execution.workflow_draft_id, workspaceId)
+  const graph = buildGraph(draft)
+  const failedStep = [...steps].reverse().find((step) => step.status === 'failed')
+  const startNodeId = execution.current_node_id || failedStep?.node_id || graph.startNode.id
+  const retryExecution = await updateExecution(supabase, executionId, {
+    status: 'running',
+    scheduled_resume_at: null,
+    pause_reason: null,
+    retry_count: Number(execution.retry_count || 0) + 1,
+    completed_at: null,
+    error_message: null,
+  }, workspaceId)
+
+  return runExecutionFromNode({
+    supabase,
+    workspaceId,
+    execution: retryExecution,
+    graph,
+    startNodeId,
+    emailSender: context.emailSender,
+  })
 }
 
 export async function getWorkflowExecution(executionId, context = {}) {

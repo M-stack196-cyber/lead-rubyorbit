@@ -1,6 +1,9 @@
 import {
+  cancelWorkflowExecution,
   getWorkflowExecution,
+  resumeDueWorkflowExecutions,
   resumeWorkflowExecution,
+  retryWorkflowExecution,
   runWorkflowExecution,
   startWorkflowExecution,
 } from './workflowExecutions.service.js'
@@ -53,6 +56,39 @@ export async function resumeWorkflowExecutionController(req, res, next) {
         executionId: req.params.id,
         context: req.body?.context || {},
       }, getRequestContext(req)),
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function resumeDueWorkflowExecutionsController(req, res, next) {
+  try {
+    res.json({
+      message: 'Due workflow executions processed successfully.',
+      data: await resumeDueWorkflowExecutions(req.body || {}, getRequestContext(req)),
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function cancelWorkflowExecutionController(req, res, next) {
+  try {
+    res.json({
+      message: 'Workflow execution canceled successfully.',
+      data: await cancelWorkflowExecution({ executionId: req.params.id }, getRequestContext(req)),
+    })
+  } catch (error) {
+    next(error)
+  }
+}
+
+export async function retryWorkflowExecutionController(req, res, next) {
+  try {
+    res.json({
+      message: 'Workflow execution retry started successfully.',
+      data: await retryWorkflowExecution({ executionId: req.params.id }, getRequestContext(req)),
     })
   } catch (error) {
     next(error)
