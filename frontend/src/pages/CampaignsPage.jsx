@@ -1183,8 +1183,8 @@ export function CampaignsPage() {
           </Badge>
           <h1 className="text-3xl font-semibold tracking-normal text-slate-950">Campaigns</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Create campaign shells, track status, and attach imported leads for later outreach
-            phases.
+            Create campaigns, track status, and attach imported leads for coordinated outreach
+            operations.
           </p>
         </div>
         <button
@@ -1477,7 +1477,7 @@ function CampaignListCard({ campaigns, isLoading, selectedCampaignId, onSelect }
             </div>
           </div>
         ) : (
-          <EmptyState text="No campaigns yet. Create the first campaign to begin Phase 3 setup." />
+          <EmptyState text="No campaigns yet. Create the first campaign to begin outreach." />
         )}
       </CardContent>
     </Card>
@@ -1816,7 +1816,7 @@ function CampaignDashboardSummaryPanel({ summary }) {
         <div>
           <h3 className="text-sm font-semibold text-slate-950">Dashboard Summary</h3>
           <p className="mt-1 text-sm text-slate-500">
-            Read-only visibility for campaign leads, drafts, replies, decisions, and notifications.
+            Campaign leads, drafts, replies, decisions, and notifications in one workspace view.
           </p>
         </div>
         <Badge variant="outline">{summary.campaign?.status || 'draft'}</Badge>
@@ -2114,7 +2114,7 @@ function EmailDraftsPanel({
         <div>
           <h3 className="text-sm font-semibold text-slate-950">Email Drafts</h3>
           <p className="mt-1 text-sm text-slate-500">
-            Draft approval only. Emails are not sent in this phase.
+            Review, generate, and approve drafts before controlled sending.
           </p>
         </div>
         <FileText className="h-5 w-5 text-primary" aria-hidden="true" />
@@ -2666,7 +2666,7 @@ function ReplyMonitoringPanel({
         <div>
           <h3 className="text-sm font-semibold text-slate-950">Reply Monitoring</h3>
           <p className="mt-1 text-sm text-slate-500">
-            Reply monitoring is manual in this phase. No automatic follow-ups are sent.
+            Reply checks are controlled by the team. Automatic follow-ups are not sent without approval.
           </p>
         </div>
         <button
@@ -2693,7 +2693,7 @@ function ReplyMonitoringPanel({
         )}
       >
         {replyMonitoringStatus?.message ||
-          'Reply monitoring is manual in this phase. No automatic follow-ups are sent.'}
+          'Reply checks are controlled by the team. Automatic follow-ups are not sent without approval.'}
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

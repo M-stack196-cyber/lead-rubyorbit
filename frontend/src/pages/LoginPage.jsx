@@ -16,7 +16,7 @@ function AuthShell({ children, mode = 'signin', onSwitchMode }) {
             Outreach operations, governed from one workspace.
           </h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-slate-600">
-            LeadRubyOrbit coordinates leads, campaigns, approvals, controlled Gmail sending, reply monitoring, and workflow execution with audit-ready visibility.
+            LeadRubyOrbit coordinates leads, campaigns, approvals, controlled Gmail sending, reply monitoring, and workflow execution with audit-ready reporting.
           </p>
           <div className="mt-8 grid max-w-xl gap-3 sm:grid-cols-3">
             {['Approval-gated email', 'Reply-aware workflows', 'Workspace audit trail'].map((item) => (

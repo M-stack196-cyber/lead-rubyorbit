@@ -105,12 +105,12 @@ export function LeadUploadsPage() {
       <header className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <Badge variant="outline" className="mb-3 bg-white">
-            Phase 2 Lead Intake
+            Lead Management
           </Badge>
           <h1 className="text-3xl font-semibold tracking-normal text-slate-950">Lead Uploads</h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
             Import lead files, review validation results, and confirm clean records into the
-            leads table.
+            workspace leads table.
           </p>
         </div>
         <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
@@ -124,7 +124,7 @@ export function LeadUploadsPage() {
           <CardHeader>
             <CardTitle className="text-base text-slate-950">Upload Source File</CardTitle>
             <CardDescription>
-              Use the file field named by the API contract and keep raw uploads server-side.
+              Upload source files securely, preview validation results, and import clean rows when ready.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

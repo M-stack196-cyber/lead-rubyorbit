@@ -109,7 +109,7 @@ const blockCategories = [
     blocks: [
       { label: 'Create Manual Draft', icon: 'SquarePen', description: 'Creates a draft for a teammate to write manually.' },
       { label: 'Create AI Draft', icon: 'Bot', description: 'Creates a visual AI draft step for later approval.' },
-      { label: 'Send Approved Email', icon: 'MailCheck', description: 'Represents sending only after approval in a future phase.' },
+      { label: 'Send Approved Email', icon: 'MailCheck', description: 'Sends approved drafts through controlled email safety checks.' },
       { label: 'Create Follow-up Draft', icon: 'MailPlus', description: 'Creates a follow-up draft for a no-reply path.' },
       { label: 'Create Team Decision', icon: 'Users', description: 'Creates a teammate review step.' },
       { label: 'Move Lead Status', icon: 'Route', description: 'Moves a lead into another visual status.' },
@@ -234,7 +234,7 @@ const sampleNodeDefinitions = [
     kind: 'action',
     category: 'Action',
     label: 'Send Approved Email',
-    description: 'Represents sending only after approval in a future phase.',
+    description: 'Sends approved drafts through controlled email safety checks.',
     icon: 'MailCheck',
     position: { x: 140, y: 480 },
     settings: { draftType: 'AI', actionType: 'Send Approved Email' },
@@ -1116,8 +1116,8 @@ function WorkflowBuilderContent({ onNavigate }) {
   }
 
   const workspaceGridClass = cn(
-    'relative grid min-h-0 flex-1 gap-3 overflow-y-auto p-3 xl:overflow-hidden',
-    isLibraryCollapsed ? 'xl:grid-cols-1' : 'xl:grid-cols-[320px_minmax(0,1fr)]',
+    'relative grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-3 pb-3 xl:content-stretch xl:overflow-hidden xl:px-4',
+    isLibraryCollapsed ? 'xl:grid-cols-1' : 'xl:grid-cols-[300px_minmax(0,1fr)]',
   )
 
   useEffect(() => {
@@ -1172,12 +1172,12 @@ function WorkflowBuilderContent({ onNavigate }) {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.10),transparent_34%),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-950">
-      <header className="z-30 shrink-0 border-b border-slate-200/80 bg-white/90 px-4 py-4 shadow-[0_14px_40px_rgba(15,23,42,0.08)] backdrop-blur xl:px-6">
-        <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
-          <div className="flex min-w-0 flex-1 flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-3">
+      <header className="z-30 shrink-0 border-b border-slate-200/80 bg-white/95 px-3 py-2.5 shadow-[0_10px_30px_rgba(15,23,42,0.07)] backdrop-blur xl:px-4">
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
-                className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+                className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
                 type="button"
                 onClick={handleBackToDashboard}
               >
@@ -1185,8 +1185,8 @@ function WorkflowBuilderContent({ onNavigate }) {
                 Back
               </button>
               <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-950 text-white shadow-sm">
-                  <Workflow className="h-5 w-5" aria-hidden="true" />
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-950 text-white shadow-sm">
+                  <Workflow className="h-4 w-4" aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -1196,16 +1196,16 @@ function WorkflowBuilderContent({ onNavigate }) {
                       Controlled workflow execution
                     </Badge>
                   </div>
-                  <p className="mt-0.5 text-xs font-medium text-slate-500">Workflow Builder · production safety controls enabled</p>
+                  <p className="mt-0.5 hidden text-xs font-medium text-slate-500 sm:block">Workflow Builder · production safety controls enabled</p>
                 </div>
               </div>
             </div>
 
-            <div className="grid gap-3 xl:grid-cols-[minmax(18rem,34rem)_auto] xl:items-center">
+            <div className="grid gap-2 xl:grid-cols-[minmax(16rem,30rem)_auto] xl:items-center">
               <label className="min-w-0">
-                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Workflow name</span>
+                <span className="sr-only">Workflow name</span>
                 <input
-                  className="min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-base font-semibold text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  className="min-h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20"
                   type="text"
                   value={workflowName}
                   onChange={handleWorkflowNameChange}
@@ -1254,11 +1254,11 @@ function WorkflowBuilderContent({ onNavigate }) {
             </div>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white/95 p-3 shadow-sm 2xl:w-[28rem]">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="rounded-lg border border-slate-200 bg-white/95 p-2.5 shadow-sm xl:w-[31rem] 2xl:w-[34rem]">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold text-slate-950">Execution controls</p>
-                <p className="mt-0.5 text-xs text-slate-500">Run saved drafts with guarded email and reply sync.</p>
+                <p className="mt-0.5 hidden text-xs text-slate-500 sm:block">Guarded email and reply sync.</p>
               </div>
               <Badge variant="outline" className="border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[0.68rem] font-semibold text-emerald-700">
                 <ShieldCheck className="mr-1 h-3 w-3" aria-hidden="true" />
@@ -1266,7 +1266,7 @@ function WorkflowBuilderContent({ onNavigate }) {
               </Badge>
             </div>
             {workflowDraftId ? (
-              <div className="mb-3 flex flex-wrap items-center gap-2">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
                 <ToolbarButton
                   disabled={!canToggleWorkflowActivation || isWorkflowActivationLoading}
                   icon={ShieldCheck}
@@ -1278,8 +1278,8 @@ function WorkflowBuilderContent({ onNavigate }) {
               </div>
             ) : null}
             {canRunSavedWorkflow ? (
-              <div className="grid gap-3">
-                <label className="grid gap-1.5">
+              <div className="grid gap-2">
+                <label className="grid gap-1">
                   <span className="text-xs font-semibold text-slate-600">Recipient email for controlled workflow run</span>
                   <input
                     className="min-h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-950 outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20"
@@ -1312,7 +1312,7 @@ function WorkflowBuilderContent({ onNavigate }) {
         </div>
       </header>
 
-      <div className="grid shrink-0 gap-2 px-4 py-3 xl:px-6">
+      <div className="flex shrink-0 flex-wrap gap-1.5 px-3 py-1.5 xl:px-4">
         {message ? <StatusAlert icon={CheckCircle2} tone="info">{message}</StatusAlert> : null}
         {currentBackendCompatibilityResult ? (
           <StatusAlert icon={ShieldCheck} tone="success">Backend validation will be saved with this draft.</StatusAlert>
@@ -1324,10 +1324,10 @@ function WorkflowBuilderContent({ onNavigate }) {
 
       <WorkflowSummaryCards summary={workflowSummary} />
 
-      <section className={cn(workspaceGridClass, "px-4 pb-4 xl:px-6")}>
+      <section className={workspaceGridClass}>
         {!isLibraryCollapsed ? (
-          <Card className="flex min-h-[360px] flex-col overflow-hidden border-slate-200 bg-white/95 shadow-[0_18px_45px_rgba(15,23,42,0.08)] xl:h-full xl:min-h-0">
-            <CardHeader className="shrink-0 border-b border-slate-100 bg-slate-50/70 p-4">
+          <Card className="flex min-h-0 flex-col overflow-hidden border-slate-200 bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.08)] xl:h-full">
+            <CardHeader className="shrink-0 border-b border-slate-100 bg-slate-50/70 p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <CardTitle className="text-base text-slate-950">Block Library</CardTitle>
@@ -1343,7 +1343,7 @@ function WorkflowBuilderContent({ onNavigate }) {
                 </button>
               </div>
             </CardHeader>
-            <CardContent className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-4">
+            <CardContent className="grid min-h-0 flex-1 gap-3 overflow-y-auto p-3">
               <BuilderTips />
               {blockCategories.map((category) => (
                 <section className="grid gap-2" key={category.label}>
@@ -1367,9 +1367,9 @@ function WorkflowBuilderContent({ onNavigate }) {
           </Card>
         ) : null}
 
-        <Card className="flex min-h-[560px] flex-col overflow-hidden border-slate-200 bg-white/95 shadow-[0_18px_45px_rgba(15,23,42,0.08)] xl:h-full xl:min-h-0">
-          <CardHeader className="shrink-0 border-b border-slate-100 p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <Card className="flex min-h-[68vh] flex-col overflow-hidden border-slate-200 bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.08)] xl:h-full xl:min-h-0">
+          <CardHeader className="shrink-0 border-b border-slate-100 p-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle className="text-base text-slate-950">Workflow Canvas</CardTitle>
                 <CardDescription>Drag nodes, connect handles, zoom, pan, and arrange visually.</CardDescription>
@@ -1379,7 +1379,7 @@ function WorkflowBuilderContent({ onNavigate }) {
                   React Flow canvas
                 </Badge>
                 <button
-                  className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                  className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
                   type="button"
                   onClick={handleCenterView}
                 >
@@ -1390,7 +1390,7 @@ function WorkflowBuilderContent({ onNavigate }) {
             </div>
           </CardHeader>
           <CardContent className="min-h-0 flex-1 bg-[radial-gradient(circle,#cbd5e1_1px,transparent_1px)] [background-size:22px_22px] p-0">
-            <div className="h-full min-h-[520px]" ref={canvasRef} onDragOver={handleDragOver} onDrop={handleDrop}>
+            <div className="h-full min-h-[65vh] xl:min-h-0" ref={canvasRef} onDragOver={handleDragOver} onDrop={handleDrop}>
               <ReactFlow
                 colorMode="light"
                 defaultEdgeOptions={defaultEdgeOptions}
@@ -1581,7 +1581,7 @@ function ToolbarButton({ children, disabled = false, icon: Icon, onClick, varian
   return (
     <button
       className={cn(
-        'inline-flex min-h-9 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60',
+        'inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-semibold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60',
         variantClass,
       )}
       disabled={disabled}
@@ -1596,8 +1596,8 @@ function ToolbarButton({ children, disabled = false, icon: Icon, onClick, varian
 
 function ActionGroup({ children, label }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-2 py-2 shadow-sm">
-      <span className="px-1 text-[0.66rem] font-semibold uppercase text-slate-400">{label}</span>
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white/80 px-1.5 py-1 shadow-sm">
+      <span className="px-1 text-[0.62rem] font-semibold uppercase text-slate-400">{label}</span>
       {children}
     </div>
   )
@@ -1612,8 +1612,8 @@ function StatusAlert({ children, icon: Icon, tone = 'info' }) {
   }[tone]
 
   return (
-    <div className={cn('flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium shadow-sm', styles)}>
-      {Icon ? <Icon className="h-4 w-4 shrink-0" aria-hidden="true" /> : null}
+    <div className={cn('flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium shadow-sm', styles)}>
+      {Icon ? <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : null}
       <span>{children}</span>
     </div>
   )
@@ -1630,19 +1630,17 @@ function WorkflowSummaryCards({ summary }) {
   ]
 
   return (
-    <div className="grid shrink-0 gap-3 px-4 pb-3 sm:grid-cols-3 xl:grid-cols-6 xl:px-6">
+    <div className="flex shrink-0 flex-wrap gap-1.5 px-3 pb-2 xl:px-4">
       {cards.map((card) => {
         const Icon = card.icon
 
         return (
-          <div className="rounded-lg border border-slate-200 bg-white/90 px-3 py-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md" key={card.label}>
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-[0.68rem] font-semibold uppercase text-slate-500">{card.label}</p>
-              <span className={cn('flex h-8 w-8 items-center justify-center rounded-md', card.tone)}>
-                <Icon className="h-4 w-4" aria-hidden="true" />
-              </span>
-            </div>
-            <p className="mt-2 text-2xl font-semibold leading-7 text-slate-950">{card.value}</p>
+          <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white/90 px-2.5 py-1.5 text-xs shadow-sm" key={card.label}>
+            <span className={cn('flex h-6 w-6 items-center justify-center rounded-md', card.tone)}>
+              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+            </span>
+            <span className="font-semibold text-slate-500">{card.label}</span>
+            <span className="font-semibold text-slate-950">{card.value}</span>
           </div>
         )
       })}
@@ -1803,12 +1801,12 @@ function BuilderTips() {
   ]
 
   return (
-    <section className="rounded-lg border border-blue-100 bg-gradient-to-br from-blue-50 to-white px-3 py-3 shadow-sm">
+    <section className="rounded-lg border border-blue-100 bg-gradient-to-br from-blue-50 to-white px-3 py-2 shadow-sm">
       <div className="flex items-center gap-2 text-xs font-semibold uppercase text-blue-800">
         <ShieldCheck className="h-4 w-4" aria-hidden="true" />
         Builder Tips
       </div>
-      <ul className="mt-3 grid gap-2 text-xs leading-5 text-blue-900">
+      <ul className="mt-2 grid gap-1.5 text-xs leading-5 text-blue-900">
         {tips.map((tip) => (
           <li className="flex gap-2" key={tip}>
             <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
@@ -2459,7 +2457,7 @@ function SettingsDrawer({ form, node, onClose, onDelete, onSave, onUpdate }) {
           <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
               <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-              Settings are visual only in this phase.
+              Settings are saved with this workflow draft.
             </div>
           </div>
 
@@ -2519,7 +2517,7 @@ function TriggerSettings({ form, onUpdate }) {
           value={form.campaignId}
           onChange={(event) => onUpdate({ ...form, campaignId: event.target.value })}
         >
-          <option value="">Select campaign in a future phase</option>
+          <option value="">Select campaign</option>
           <option value="sample-campaign">Sample campaign placeholder</option>
         </select>
       </label>
@@ -2530,7 +2528,7 @@ function TriggerSettings({ form, onUpdate }) {
           value={form.leadStatus}
           onChange={(event) => onUpdate({ ...form, leadStatus: event.target.value })}
         >
-          <option value="">Choose lead status in a future phase</option>
+          <option value="">Choose lead status</option>
           <option value="new">New</option>
           <option value="contacted">Contacted</option>
           <option value="replied">Replied</option>
@@ -2557,7 +2555,7 @@ function ActionSettings({ form, node, onUpdate }) {
       </label>
       <TextInputField
         label="Team member"
-        placeholder="Select teammate in a future phase"
+        placeholder="Select teammate"
         value={form.assignee}
         onChange={(value) => onUpdate({ ...form, assignee: value })}
       />

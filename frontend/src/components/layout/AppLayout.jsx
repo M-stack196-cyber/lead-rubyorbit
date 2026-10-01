@@ -62,14 +62,15 @@ export function AppLayout({
   const userLabel =
     profile?.teamMember?.full_name || profile?.teamMember?.email || profile?.user?.email || 'Workspace user'
   const userEmail = profile?.teamMember?.email || profile?.user?.email || ''
-  const roleLabel = profile?.role || profile?.workspace?.role || 'local access'
-  const workspaceLabel = profile?.workspace?.name || 'Local workspace'
+  const accessRole = profile?.role || profile?.workspace?.role || 'local'
+  const roleLabel = profile?.role || profile?.workspace?.role || 'Member'
+  const workspaceLabel = profile?.workspace?.name || 'Workspace'
   const visibleNavigationSections = navigationSections
     .map((section) => ({
       ...section,
       items: section.items.filter((item) => {
-        if (!item.roles?.length || roleLabel === 'local access') return true
-        return item.roles.includes(roleLabel)
+        if (!item.roles?.length || accessRole === 'local') return true
+        return item.roles.includes(accessRole)
       }),
     }))
     .filter((section) => section.items.length)

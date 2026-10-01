@@ -169,7 +169,7 @@ export function EmailAccountsPage() {
           smtpSecret: form.smtpSecret,
           notes: form.notes,
         })
-        setSuccess('Email account created. Emails are not sent in this phase.')
+        setSuccess('Email account created. Live sending remains controlled by account status and safety settings.')
       }
 
       resetForm()
@@ -220,13 +220,13 @@ export function EmailAccountsPage() {
       <header className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <Badge variant="outline" className="mb-3 bg-white">
-            Phase 8 Email Accounts
+            Account Administration
           </Badge>
           <h1 className="text-3xl font-semibold tracking-normal text-slate-950">
             Email Accounts
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Gmail accounts can be connected with Google OAuth before live sending is enabled.
+            Connect and manage approved sender accounts. Live sending remains protected by production safety controls.
           </p>
         </div>
         <button
@@ -315,7 +315,7 @@ function AccountForm({ form, isSaving, onChange, onReset, onSubmit }) {
         <CardTitle className="text-base text-slate-950">
           {isEditing ? 'Edit Account' : 'Create Account'}
         </CardTitle>
-        <CardDescription>Live sending supports connected Gmail or configured SMTP accounts.</CardDescription>
+        <CardDescription>Gmail and SMTP accounts stay governed by workspace permissions and sending safety controls.</CardDescription>
       </CardHeader>
       <CardContent>
         <form className="space-y-4" onSubmit={onSubmit}>
