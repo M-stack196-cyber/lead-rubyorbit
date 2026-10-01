@@ -65,6 +65,31 @@ import {
 } from '@/services/api'
 
 const draftStorageKey = 'leadrubyorbit.workflowBuilderDraft'
+const workflowCanvasHeightStorageKey = 'workflowCanvasHeight'
+const workflowCanvasMinHeight = 560
+const workflowCanvasMaxHeight = 1200
+const workflowCanvasFallbackHeight = 760
+
+function clampWorkflowCanvasHeight(value) {
+  const numericValue = Number(value)
+  if (!Number.isFinite(numericValue)) return workflowCanvasFallbackHeight
+  return Math.min(workflowCanvasMaxHeight, Math.max(workflowCanvasMinHeight, Math.round(numericValue)))
+}
+
+function getDefaultWorkflowCanvasHeight() {
+  if (typeof window === 'undefined') return workflowCanvasFallbackHeight
+  return clampWorkflowCanvasHeight(Math.max(680, window.innerHeight * 0.78))
+}
+
+function getSavedWorkflowCanvasHeight() {
+  if (typeof window === 'undefined') return workflowCanvasFallbackHeight
+
+  const savedHeight = window.localStorage.getItem(workflowCanvasHeightStorageKey)
+  if (!savedHeight) return getDefaultWorkflowCanvasHeight()
+
+  return clampWorkflowCanvasHeight(savedHeight)
+}
+
 const nodeType = 'workflowBlock'
 
 const iconMap = {
@@ -301,6 +326,7 @@ export function WorkflowBuilderPage({ onNavigate }) {
 
 function WorkflowBuilderContent({ onNavigate }) {
   const canvasRef = useRef(null)
+  const canvasResizeDragRef = useRef(null)
   const suppressDirtyRef = useRef(false)
   const suppressDirtyTokenRef = useRef(0)
   const backendCompatibilitySnapshotRef = useRef(null)
@@ -341,6 +367,8 @@ function WorkflowBuilderContent({ onNavigate }) {
   const [workflowRunRecipientEmail, setWorkflowRunRecipientEmail] = useState('')
   const [isGmailReplySyncLoading, setIsGmailReplySyncLoading] = useState(false)
   const [gmailReplySyncResult, setGmailReplySyncResult] = useState(null)
+  const [workflowCanvasHeight, setWorkflowCanvasHeight] = useState(getSavedWorkflowCanvasHeight)
+  const [isWorkflowCanvasResizing, setIsWorkflowCanvasResizing] = useState(false)
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || null,
@@ -1101,6 +1129,29 @@ function WorkflowBuilderContent({ onNavigate }) {
     flowInstance?.fitView({ padding: 0.2, duration: 500 })
   }
 
+  function handleExpandCanvas() {
+    const expandedHeight = typeof window === 'undefined'
+      ? workflowCanvasMaxHeight
+      : Math.max(workflowCanvasHeight, Math.min(workflowCanvasMaxHeight, Math.round(window.innerHeight * 1.05)))
+
+    setWorkflowCanvasHeight(clampWorkflowCanvasHeight(expandedHeight))
+    window.requestAnimationFrame(() => flowInstance?.fitView({ padding: 0.2, duration: 350 }))
+  }
+
+  function handleResetCanvasHeight() {
+    setWorkflowCanvasHeight(getDefaultWorkflowCanvasHeight())
+    window.requestAnimationFrame(() => flowInstance?.fitView({ padding: 0.2, duration: 350 }))
+  }
+
+  function handleCanvasResizeStart(event) {
+    event.preventDefault()
+    canvasResizeDragRef.current = {
+      startHeight: workflowCanvasHeight,
+      startY: event.clientY,
+    }
+    setIsWorkflowCanvasResizing(true)
+  }
+
   function handleDeleteSelectedEdge() {
     if (!selectedEdge) return
 
@@ -1116,9 +1167,50 @@ function WorkflowBuilderContent({ onNavigate }) {
   }
 
   const workspaceGridClass = cn(
-    'relative grid min-h-0 flex-1 content-start gap-3 overflow-y-auto px-3 pb-3 xl:content-stretch xl:overflow-hidden xl:px-4',
+    'relative grid shrink-0 content-start gap-3 overflow-hidden px-3 pb-3 xl:content-stretch xl:px-4',
     isLibraryCollapsed ? 'xl:grid-cols-1' : 'xl:grid-cols-[300px_minmax(0,1fr)]',
   )
+  const workspaceGridStyle = {
+    height: workflowCanvasHeight,
+    maxHeight: workflowCanvasMaxHeight,
+    minHeight: workflowCanvasMinHeight,
+  }
+
+  useEffect(() => {
+    window.localStorage.setItem(workflowCanvasHeightStorageKey, String(workflowCanvasHeight))
+  }, [workflowCanvasHeight])
+
+  useEffect(() => {
+    if (!isWorkflowCanvasResizing) return undefined
+
+    const previousCursor = document.body.style.cursor
+    const previousUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'ns-resize'
+    document.body.style.userSelect = 'none'
+
+    function handleResizeMove(event) {
+      const dragState = canvasResizeDragRef.current
+      if (!dragState) return
+
+      setWorkflowCanvasHeight(clampWorkflowCanvasHeight(dragState.startHeight + event.clientY - dragState.startY))
+    }
+
+    function handleResizeEnd() {
+      canvasResizeDragRef.current = null
+      setIsWorkflowCanvasResizing(false)
+      window.requestAnimationFrame(() => flowInstance?.fitView({ padding: 0.2, duration: 250 }))
+    }
+
+    window.addEventListener('mousemove', handleResizeMove)
+    window.addEventListener('mouseup', handleResizeEnd)
+
+    return () => {
+      document.body.style.cursor = previousCursor
+      document.body.style.userSelect = previousUserSelect
+      window.removeEventListener('mousemove', handleResizeMove)
+      window.removeEventListener('mouseup', handleResizeEnd)
+    }
+  }, [flowInstance, isWorkflowCanvasResizing])
 
   useEffect(() => {
     function handleKeyDown(event) {
@@ -1171,7 +1263,7 @@ function WorkflowBuilderContent({ onNavigate }) {
   }, [backendCompatibilitySchemaJson, clearBackendCompatibilityValidation, previewJson])
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.10),transparent_34%),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-950">
+    <div className="flex min-h-screen flex-col overflow-y-auto overflow-x-hidden bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.10),transparent_34%),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-950">
       <header className="z-30 shrink-0 border-b border-slate-200/80 bg-white/95 px-3 py-2.5 shadow-[0_10px_30px_rgba(15,23,42,0.07)] backdrop-blur xl:px-4">
         <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
           <div className="flex min-w-0 flex-1 flex-col gap-2">
@@ -1324,9 +1416,9 @@ function WorkflowBuilderContent({ onNavigate }) {
 
       <WorkflowSummaryCards summary={workflowSummary} />
 
-      <section className={workspaceGridClass}>
+      <section className={workspaceGridClass} style={workspaceGridStyle}>
         {!isLibraryCollapsed ? (
-          <Card className="flex min-h-0 flex-col overflow-hidden border-slate-200 bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.08)] xl:h-full">
+          <Card className="flex h-full min-h-0 flex-col overflow-hidden border-slate-200 bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
             <CardHeader className="shrink-0 border-b border-slate-100 bg-slate-50/70 p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -1367,7 +1459,7 @@ function WorkflowBuilderContent({ onNavigate }) {
           </Card>
         ) : null}
 
-        <Card className="flex min-h-[68vh] flex-col overflow-hidden border-slate-200 bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.08)] xl:h-full xl:min-h-0">
+        <Card className="flex h-full min-h-0 flex-col overflow-hidden border-slate-200 bg-white/95 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
           <CardHeader className="shrink-0 border-b border-slate-100 p-3">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -1386,11 +1478,25 @@ function WorkflowBuilderContent({ onNavigate }) {
                   <Maximize2 className="h-4 w-4" aria-hidden="true" />
                   Fit View
                 </button>
+                <button
+                  className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                  type="button"
+                  onClick={handleExpandCanvas}
+                >
+                  Expand Canvas
+                </button>
+                <button
+                  className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                  type="button"
+                  onClick={handleResetCanvasHeight}
+                >
+                  Reset Height
+                </button>
               </div>
             </div>
           </CardHeader>
           <CardContent className="min-h-0 flex-1 bg-[radial-gradient(circle,#cbd5e1_1px,transparent_1px)] [background-size:22px_22px] p-0">
-            <div className="h-full min-h-[65vh] xl:min-h-0" ref={canvasRef} onDragOver={handleDragOver} onDrop={handleDrop}>
+            <div className="h-full min-h-0" ref={canvasRef} onDragOver={handleDragOver} onDrop={handleDrop}>
               <ReactFlow
                 colorMode="light"
                 defaultEdgeOptions={defaultEdgeOptions}
@@ -1448,6 +1554,20 @@ function WorkflowBuilderContent({ onNavigate }) {
               </ReactFlow>
             </div>
           </CardContent>
+          <div
+            className={cn(
+              'flex h-7 shrink-0 cursor-ns-resize items-center justify-center border-t border-slate-200 bg-slate-50 text-[0.68rem] font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-700',
+              isWorkflowCanvasResizing && 'bg-blue-50 text-blue-700',
+            )}
+            onMouseDown={handleCanvasResizeStart}
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Drag to resize canvas"
+            title="Drag to resize canvas"
+          >
+            <span className="h-1 w-12 rounded-full bg-slate-300" aria-hidden="true" />
+            <span className="ml-2 hidden sm:inline">Drag to resize canvas</span>
+          </div>
         </Card>
 
         {selectedEdge ? (
