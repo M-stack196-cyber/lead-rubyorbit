@@ -22,6 +22,7 @@ import { leadsRouter } from '../modules/leads/leads.routes.js'
 import { noReplyMonitoringRouter } from '../modules/noReplyMonitoring/noReplyMonitoring.routes.js'
 import { notificationsRouter } from '../modules/notifications/notifications.routes.js'
 import { replyMonitoringRouter } from '../modules/replyMonitoring/replyMonitoring.routes.js'
+import { syncWorkspaceGmailRepliesController } from '../modules/replyMonitoring/replyMonitoring.controller.js'
 import { teamDecisionsRouter } from '../modules/teamDecisions/teamDecisions.routes.js'
 import { teamMembersRouter } from '../modules/teamMembers/teamMembers.routes.js'
 import { workflowDraftsRouter } from '../modules/workflowDrafts/workflowDrafts.routes.js'
@@ -86,6 +87,12 @@ apiRoutes.post(
   requirePermission(permissions.GMAIL_MANAGE),
   auditAction('gmail.disconnect', 'email_account', (req) => req.params.emailAccountId),
   disconnectGmailAccountController,
+)
+apiRoutes.post(
+  '/gmail/replies/sync',
+  requirePermission(permissions.REPLY_CHECK),
+  auditAction('gmail_reply.synced', 'email_account'),
+  syncWorkspaceGmailRepliesController,
 )
 apiRoutes.use('/email-drafts', emailDraftsRouter)
 apiRoutes.use('/email-accounts', emailAccountsRouter)

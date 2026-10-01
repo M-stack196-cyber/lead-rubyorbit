@@ -507,6 +507,103 @@ function selectNextNodeId(node, outgoing, context) {
   return outgoing[0].target
 }
 
+function hasOwnContextReplyReceived(context = {}) {
+  return Object.prototype.hasOwnProperty.call(context, 'replyReceived')
+}
+
+function getPreviousSentEmailId(previousSteps = []) {
+  const sendStep = [...previousSteps]
+    .reverse()
+    .find((step) => (step.type_key || step.typeKey) === 'action.send_approved_email')
+
+  return sendStep?.output?.sentEmailId || null
+}
+
+async function findStoredWorkflowReply(supabase, { workspaceId, execution, previousSteps }) {
+  const sentEmailId = getPreviousSentEmailId(previousSteps)
+
+  if (sentEmailId) {
+    const { data, error } = await scopeWorkspace(
+      supabase.from('replies').select('id, sent_email_id, lead_id, campaign_id, from_email, subject, received_at'),
+      workspaceId,
+    )
+      .eq('sent_email_id', sentEmailId)
+      .order('received_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) {
+      throw createHttpError(error.message, 500)
+    }
+
+    if (data) return data
+  }
+
+  let query = scopeWorkspace(
+    supabase.from('replies').select('id, sent_email_id, lead_id, campaign_id, from_email, subject, received_at'),
+    workspaceId,
+  )
+
+  if (execution?.lead_id) {
+    query = query.eq('lead_id', execution.lead_id)
+  }
+
+  if (execution?.campaign_id) {
+    query = query.eq('campaign_id', execution.campaign_id)
+  }
+
+  if (!execution?.lead_id && !execution?.campaign_id) {
+    return null
+  }
+
+  const { data, error } = await query
+    .order('received_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  return data || null
+}
+
+async function evaluateReplyReceivedCondition(input, runtime = {}) {
+  if (hasOwnContextReplyReceived(input.context)) {
+    const replyReceived = Boolean(input.context.replyReceived)
+    return {
+      status: 'completed',
+      output: {
+        replyReceived,
+        selectedBranch: replyReceived ? 'Yes' : 'No',
+        source: 'context',
+        message: replyReceived ? 'Reply found from workflow context.' : 'No reply found from workflow context.',
+      },
+    }
+  }
+
+  const reply = await findStoredWorkflowReply(runtime.supabase, {
+    workspaceId: runtime.workspaceId,
+    execution: runtime.execution,
+    previousSteps: runtime.previousSteps || [],
+  })
+  const replyReceived = Boolean(reply)
+
+  return {
+    status: 'completed',
+    output: {
+      replyReceived,
+      selectedBranch: replyReceived ? 'Yes' : 'No',
+      source: 'stored_reply',
+      message: replyReceived ? 'Reply found.' : 'No reply found.',
+      replyId: reply?.id || null,
+      sentEmailId: reply?.sent_email_id || null,
+      fromEmail: reply?.from_email || null,
+      receivedAt: reply?.received_at || null,
+    },
+  }
+}
+
 function mergeExecutionContext(existingContext, resumeContext) {
   return {
     ...normalizeObject(existingContext),
@@ -615,13 +712,7 @@ async function executeNode(node, input, runtime = {}) {
       }
     }
     case 'condition.reply_received':
-      return {
-        status: 'completed',
-        output: {
-          replyReceived: Boolean(input.context?.replyReceived),
-          selectedBranch: input.context?.replyReceived ? 'Yes' : 'No',
-        },
-      }
+      return evaluateReplyReceivedCondition(input, runtime)
     case 'action.create_team_decision':
       return {
         status: 'completed',
@@ -733,7 +824,10 @@ async function runExecutionFromNode({ supabase, workspaceId, execution, graph, s
       }
 
       const outgoing = graph.outgoingByNodeId.get(node.id) || []
-      currentNodeId = selectNextNodeId(node, outgoing, currentExecution.context || {})
+      const branchContext = node.typeKey === 'condition.reply_received'
+        ? { ...(currentExecution.context || {}), replyReceived: result.output?.replyReceived }
+        : currentExecution.context || {}
+      currentNodeId = selectNextNodeId(node, outgoing, branchContext)
     }
 
     await updateExecution(supabase, currentExecution.id, {
@@ -924,7 +1018,6 @@ export async function triggerLeadAddedToCampaignWorkflows({ leadId, campaignId }
       context: {
         triggerSource: 'lead_added_to_campaign',
         autoTriggered: true,
-        replyReceived: false,
       },
     }, {
       supabase,

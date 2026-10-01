@@ -3,7 +3,7 @@ import { getGoogleOAuthScopes } from '../gmail/gmail.oauthClient.js'
 import { createNotificationIfMissing } from '../notifications/notifications.service.js'
 import { createPendingDecisionForReply } from '../teamDecisions/teamDecisions.service.js'
 import { isReplyFromOtherSender, readGmailThread } from './replyMonitoring.gmailReader.js'
-import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
+import { getCurrentWorkspaceId, scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
 
 const sentEmailSelect = `
   id,
@@ -60,6 +60,14 @@ const replySelect = `
     status
   )
 `
+
+function getClient(context = {}) {
+  return context.supabase || getSupabaseClient()
+}
+
+function getWorkspaceId(context = {}) {
+  return context.workspaceId || getCurrentWorkspaceId()
+}
 
 function getSupabaseClient() {
   const supabase = createSupabaseServiceClient()
@@ -135,9 +143,10 @@ async function safelyCreateNewReplyNotification(reply) {
   }
 }
 
-async function getSentEmailById(supabase, sentEmailId) {
+async function getSentEmailById(supabase, sentEmailId, workspaceId) {
   const { data, error } = await scopeWorkspace(
     supabase.from('sent_emails').select(sentEmailSelect),
+    workspaceId,
   )
     .eq('id', sentEmailId)
     .single()
@@ -152,9 +161,10 @@ async function getSentEmailById(supabase, sentEmailId) {
   return data
 }
 
-async function getEmailAccountById(supabase, emailAccountId) {
+async function getEmailAccountById(supabase, emailAccountId, workspaceId) {
   const { data, error } = await scopeWorkspace(
     supabase.from('email_accounts').select(accountSelect),
+    workspaceId,
   )
     .eq('id', emailAccountId)
     .single()
@@ -169,21 +179,24 @@ async function getEmailAccountById(supabase, emailAccountId) {
   return data
 }
 
-async function updateSafeGmailError(supabase, accountId, message) {
+async function updateSafeGmailError(supabase, accountId, message, workspaceId) {
   await scopeWorkspace(
     supabase.from('email_accounts').update({
       gmail_token_status: 'error',
       gmail_last_error: String(message || 'Gmail API request failed.').slice(0, 500),
     }),
+    workspaceId,
   )
     .eq('id', accountId)
 }
 
-export async function getReplyMonitoringStatus() {
-  const supabase = getSupabaseClient()
+export async function getReplyMonitoringStatus(context = {}) {
+  const supabase = getClient(context)
+  const workspaceId = getWorkspaceId(context)
   const scopes = getGoogleOAuthScopes()
   const { count, error } = await scopeWorkspace(
     supabase.from('email_accounts').select('id', { count: 'exact', head: true }),
+    workspaceId,
   )
     .eq('provider', 'gmail')
     .eq('gmail_token_status', 'connected')
@@ -199,10 +212,12 @@ export async function getReplyMonitoringStatus() {
   }
 }
 
-export async function checkSentEmailReplies(sentEmailId) {
-  const supabase = getSupabaseClient()
-  const sentEmail = await getSentEmailById(supabase, sentEmailId)
-  const account = await getEmailAccountById(supabase, sentEmail.email_account_id)
+export async function checkSentEmailReplies(sentEmailId, context = {}) {
+  const supabase = getClient(context)
+  const workspaceId = getWorkspaceId(context)
+  const gmailThreadReader = context.gmailThreadReader || readGmailThread
+  const sentEmail = await getSentEmailById(supabase, sentEmailId, workspaceId)
+  const account = await getEmailAccountById(supabase, sentEmail.email_account_id, workspaceId)
 
   if (account.provider !== 'gmail') {
     throw createHttpError('Reply monitoring only supports Gmail email accounts in this phase.', 400)
@@ -235,9 +250,9 @@ export async function checkSentEmailReplies(sentEmailId) {
   let thread
 
   try {
-    thread = await readGmailThread({ account, supabase, threadId })
+    thread = await gmailThreadReader({ account, supabase, threadId })
   } catch (error) {
-    await updateSafeGmailError(supabase, account.id, error.message)
+    await updateSafeGmailError(supabase, account.id, error.message, workspaceId)
     throw createHttpError('Gmail API request failed while checking replies.', error.statusCode || 502)
   }
 
@@ -258,6 +273,7 @@ export async function checkSentEmailReplies(sentEmailId) {
   const gmailMessageIds = candidateReplies.map((message) => message.gmailMessageId)
   const { data: existingReplies, error: existingError } = await scopeWorkspace(
     supabase.from('replies').select('gmail_message_id'),
+    workspaceId,
   )
     .in('gmail_message_id', gmailMessageIds)
 
@@ -288,7 +304,7 @@ export async function checkSentEmailReplies(sentEmailId) {
       provider_thread_id: message.gmailThreadId,
       received_at: message.receivedAt,
       raw_payload: message.rawPayload,
-    }))
+    }, workspaceId))
 
     const { data: insertedReplies, error: insertError } = await supabase
       .from('replies')
@@ -299,9 +315,11 @@ export async function checkSentEmailReplies(sentEmailId) {
       throw createHttpError(insertError.message, 500)
     }
 
-    for (const reply of insertedReplies || []) {
-      await safelyCreateNewReplyNotification(reply)
-      await createPendingDecisionForReply(reply.id)
+    if (!context.skipReplySideEffects) {
+      for (const reply of insertedReplies || []) {
+        await safelyCreateNewReplyNotification(reply)
+        await createPendingDecisionForReply(reply.id)
+      }
     }
   }
 
@@ -309,6 +327,7 @@ export async function checkSentEmailReplies(sentEmailId) {
     const now = new Date().toISOString()
     const { error: sentEmailUpdateError } = await scopeWorkspace(
       supabase.from('sent_emails').update({ status: 'replied' }),
+      workspaceId,
     )
       .eq('id', sentEmail.id)
 
@@ -322,11 +341,24 @@ export async function checkSentEmailReplies(sentEmailId) {
           outreach_status: 'replied',
           reply_detected_at: now,
         }),
+        workspaceId,
       )
         .eq('id', sentEmail.campaign_lead_id)
 
       if (campaignLeadUpdateError) {
         throw createHttpError(campaignLeadUpdateError.message, 500)
+      }
+    }
+
+    if (sentEmail.lead_id) {
+      const { error: leadUpdateError } = await scopeWorkspace(
+        supabase.from('leads').update({ status: 'replied' }),
+        workspaceId,
+      )
+        .eq('id', sentEmail.lead_id)
+
+      if (leadUpdateError) {
+        throw createHttpError(leadUpdateError.message, 500)
       }
     }
   }
@@ -339,10 +371,12 @@ export async function checkSentEmailReplies(sentEmailId) {
   }
 }
 
-export async function checkCampaignReplies(campaignId) {
-  const supabase = getSupabaseClient()
+export async function checkCampaignReplies(campaignId, context = {}) {
+  const supabase = getClient(context)
+  const workspaceId = getWorkspaceId(context)
   const { data, error } = await scopeWorkspace(
     supabase.from('sent_emails').select('id'),
+    workspaceId,
   )
     .eq('campaign_id', campaignId)
     .in('status', ['sent', 'waiting_reply'])
@@ -362,7 +396,7 @@ export async function checkCampaignReplies(campaignId) {
 
   for (const row of data || []) {
     try {
-      const result = await checkSentEmailReplies(row.id)
+      const result = await checkSentEmailReplies(row.id, context)
       summary.checked += 1
       summary.newRepliesSaved += result.newRepliesSaved
 
@@ -412,4 +446,90 @@ export async function listSentEmailReplies(sentEmailId) {
   }
 
   return (data || []).map(mapReply)
+}
+
+async function getDefaultGmailReplyAccount(supabase, workspaceId) {
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_accounts').select(accountSelect),
+    workspaceId,
+  )
+    .eq('provider', 'gmail')
+    .eq('gmail_token_status', 'connected')
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  const accounts = data || []
+  return accounts.find((account) =>
+    [account.email_address, account.gmail_email]
+      .filter(Boolean)
+      .some((email) => email.toLowerCase() === 'incdatamart@gmail.com'),
+  ) || accounts[0] || null
+}
+
+async function listReplySyncSentEmails(supabase, { workspaceId, emailAccountId, limit }) {
+  const { data, error } = await scopeWorkspace(
+    supabase.from('sent_emails').select('id'),
+    workspaceId,
+  )
+    .eq('email_account_id', emailAccountId)
+    .in('status', ['sent', 'waiting_reply'])
+    .order('sent_at', { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    throw createHttpError(error.message, 500)
+  }
+
+  return data || []
+}
+
+export async function syncWorkspaceGmailReplies(payload = {}, context = {}) {
+  const supabase = getClient(context)
+  const workspaceId = getWorkspaceId(context)
+  const account = await getDefaultGmailReplyAccount(supabase, workspaceId)
+  const summary = {
+    scanned: 0,
+    matched: 0,
+    stored: 0,
+    duplicatesSkipped: 0,
+    errors: 0,
+    results: [],
+  }
+
+  if (!account) {
+    return {
+      ...summary,
+      message: 'No connected Gmail account found for reply sync.',
+    }
+  }
+
+  const limit = Math.min(Math.max(Number(payload.limit || 50), 1), 200)
+  const sentEmails = await listReplySyncSentEmails(supabase, {
+    workspaceId,
+    emailAccountId: account.id,
+    limit,
+  })
+
+  for (const sentEmail of sentEmails) {
+    summary.scanned += 1
+
+    try {
+      const result = await checkSentEmailReplies(sentEmail.id, {
+        ...context,
+        supabase,
+        workspaceId,
+      })
+      if (result.repliesFound > 0) summary.matched += 1
+      summary.stored += result.newRepliesSaved || 0
+      summary.duplicatesSkipped += result.alreadyExisting || 0
+      summary.results.push({ sentEmailId: sentEmail.id, status: 'checked', ...result })
+    } catch (error) {
+      summary.errors += 1
+      summary.results.push({ sentEmailId: sentEmail.id, status: 'failed', message: error.message })
+    }
+  }
+
+  return summary
 }

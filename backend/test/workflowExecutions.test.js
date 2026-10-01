@@ -13,6 +13,7 @@ import {
   startWorkflowExecution,
   triggerLeadAddedToCampaignWorkflows,
 } from '../src/modules/workflowExecutions/workflowExecutions.service.js'
+import { syncWorkspaceGmailReplies } from '../src/modules/replyMonitoring/replyMonitoring.service.js'
 
 afterEach(() => {
   env.auth.required = true
@@ -131,6 +132,7 @@ function createEmailAccountRow(overrides = {}) {
     gmail_refresh_token_encrypted: 'encrypted-refresh-token',
     gmail_access_token_encrypted: 'encrypted-access-token',
     gmail_token_expires_at: '2026-10-01T00:00:00.000Z',
+    gmail_scope: 'https://www.googleapis.com/auth/gmail.readonly',
     smtp_host: null,
     smtp_port: null,
     smtp_username: null,
@@ -147,6 +149,8 @@ function createMockSupabase({
   emailDrafts = [],
   leads = [],
   emailAccounts = [],
+  sentEmails = [],
+  replies = [],
 } = {}) {
   const tables = {
     workflow_drafts: [...workflowDrafts],
@@ -156,7 +160,8 @@ function createMockSupabase({
     email_drafts: [...emailDrafts],
     leads: [...leads],
     email_accounts: [...emailAccounts],
-    sent_emails: [],
+    sent_emails: [...sentEmails],
+    replies: [...replies],
     audit_logs: [],
   }
   const calls = []
@@ -174,10 +179,13 @@ function createMockSupabase({
   function createQuery(table) {
     const state = {
       filters: [],
+      inFilters: [],
       ltFilters: [],
       lteFilters: [],
       insertValues: null,
       updateValues: null,
+      limitValue: null,
+      orderBy: null,
     }
     const query = {
       eq(field, value) {
@@ -188,6 +196,11 @@ function createMockSupabase({
       insert(values) {
         state.insertValues = values
         calls.push(['insert', table, values])
+        return query
+      },
+      in(field, values) {
+        state.inFilters.push([field, values])
+        calls.push(['in', table, field, values])
         return query
       },
       lt(field, value) {
@@ -205,8 +218,14 @@ function createMockSupabase({
         return Promise.resolve(executeMaybeSingle())
       },
       order(field, options) {
+        state.orderBy = [field, options || {}]
         calls.push(['order', table, field, options])
-        return Promise.resolve(executeMany())
+        return query
+      },
+      limit(value) {
+        state.limitValue = value
+        calls.push(['limit', table, value])
+        return query
       },
       select(columns) {
         calls.push(['select', table, columns])
@@ -221,6 +240,9 @@ function createMockSupabase({
         calls.push(['update', table, values])
         return query
       },
+      then(resolve, reject) {
+        return Promise.resolve(executeMany()).then(resolve, reject)
+      },
     }
 
     function fieldValue(row, field) {
@@ -234,6 +256,7 @@ function createMockSupabase({
 
     function matches(row) {
       return state.filters.every(([field, value]) => fieldValue(row, field) === value)
+        && state.inFilters.every(([field, values]) => values.includes(fieldValue(row, field)))
         && state.ltFilters.every(([field, value]) => Number(fieldValue(row, field) || 0) < Number(value))
         && state.lteFilters.every(([field, value]) => String(fieldValue(row, field) || '') <= String(value))
     }
@@ -293,12 +316,50 @@ function createMockSupabase({
         }
       }
 
+      if (table === 'replies') {
+        return {
+          id: nextId('reply'),
+          created_at: now(),
+          updated_at: now(),
+          received_at: values.received_at || now(),
+          ...values,
+        }
+      }
+
       return { id: nextId('row'), created_at: now(), updated_at: now(), ...values }
     }
 
     function executeMany() {
+      if (state.insertValues) {
+        const rows = Array.isArray(state.insertValues)
+          ? state.insertValues.map((value) => defaultsForInsert(value))
+          : [defaultsForInsert(state.insertValues)]
+        tables[table].push(...rows)
+        return { data: Array.isArray(state.insertValues) ? rows : rows[0], error: null }
+      }
+
+      if (state.updateValues) {
+        const rows = tables[table].filter(matches)
+        rows.forEach((row) => Object.assign(row, state.updateValues, { updated_at: now() }))
+        return { data: rows, error: null }
+      }
+
+      let rows = tables[table].filter(matches)
+      if (state.orderBy) {
+        const [field, options] = state.orderBy
+        rows = [...rows].sort((left, right) => {
+          const leftValue = fieldValue(left, field) || ''
+          const rightValue = fieldValue(right, field) || ''
+          if (leftValue === rightValue) return 0
+          const direction = options.ascending === false ? -1 : 1
+          return leftValue > rightValue ? direction : -direction
+        })
+      }
+      if (state.limitValue !== null) {
+        rows = rows.slice(0, Number(state.limitValue))
+      }
       return {
-        data: tables[table].filter(matches),
+        data: rows,
         error: null,
       }
     }
@@ -1279,4 +1340,227 @@ test('retry does not duplicate email send', async () => {
     }),
     /already sent an email/,
   )
+})
+
+
+function createSentEmailRow(overrides = {}) {
+  return {
+    id: 'sent-email-1',
+    workspace_id: 'workspace-1',
+    campaign_id: 'campaign-1',
+    lead_id: 'lead-1',
+    campaign_lead_id: 'campaign-lead-1',
+    email_account_id: 'account-1',
+    to_email: 'lead@example.com',
+    from_email: 'incdatamart@gmail.com',
+    subject: 'Hello Workflow Lead',
+    message_id: 'gmail-original-1',
+    thread_id: 'gmail-thread-1',
+    provider_message_id: 'gmail-original-1',
+    provider_thread_id: 'gmail-thread-1',
+    status: 'sent',
+    sent_at: '2026-09-30T12:00:00.000Z',
+    created_at: '2026-09-30T12:00:00.000Z',
+    updated_at: '2026-09-30T12:00:00.000Z',
+    ...overrides,
+  }
+}
+
+function createReplyRow(overrides = {}) {
+  return {
+    id: 'reply-1',
+    workspace_id: 'workspace-1',
+    sent_email_id: 'sent-email-1',
+    campaign_id: 'campaign-1',
+    lead_id: 'lead-1',
+    campaign_lead_id: 'campaign-lead-1',
+    email_account_id: 'account-1',
+    gmail_message_id: 'gmail-reply-1',
+    gmail_thread_id: 'gmail-thread-1',
+    from_email: 'Lead <lead@example.com>',
+    to_email: 'incdatamart@gmail.com',
+    subject: 'Re: Hello Workflow Lead',
+    body_preview: 'Interested, tell me more.',
+    received_at: '2026-09-30T12:05:00.000Z',
+    created_at: '2026-09-30T12:05:00.000Z',
+    updated_at: '2026-09-30T12:05:00.000Z',
+    ...overrides,
+  }
+}
+
+function createGmailThread() {
+  return {
+    id: 'gmail-thread-1',
+    messages: [
+      {
+        gmailMessageId: 'gmail-original-1',
+        gmailThreadId: 'gmail-thread-1',
+        fromEmail: 'Inc Data Mart <incdatamart@gmail.com>',
+        fromEmailAddress: 'incdatamart@gmail.com',
+        toEmail: 'Workflow Lead <lead@example.com>',
+        subject: 'Hello Workflow Lead',
+        bodyPreview: 'Original email',
+        receivedAt: '2026-09-30T12:00:00.000Z',
+        rawPayload: { id: 'gmail-original-1' },
+      },
+      {
+        gmailMessageId: 'gmail-reply-1',
+        gmailThreadId: 'gmail-thread-1',
+        fromEmail: 'Workflow Lead <lead@example.com>',
+        fromEmailAddress: 'lead@example.com',
+        toEmail: 'Inc Data Mart <incdatamart@gmail.com>',
+        subject: 'Re: Hello Workflow Lead',
+        bodyPreview: 'Interested, tell me more.',
+        receivedAt: '2026-09-30T12:05:00.000Z',
+        rawPayload: { id: 'gmail-reply-1' },
+      },
+    ],
+  }
+}
+
+function createReplyConditionWorkflow({ withWait = false } = {}) {
+  const nodes = [
+    createNode('trigger-1', 'trigger.lead_added_to_campaign', 'Trigger'),
+    ...(withWait ? [createNode('wait-1', 'wait.wait_days', 'Wait', { duration: 1, unit: 'days' })] : []),
+    createNode('condition-1', 'condition.reply_received', 'Condition'),
+    createNode('team-1', 'action.create_team_decision', 'Action'),
+    createNode('follow-up-1', 'action.create_follow_up_draft', 'Action'),
+  ]
+  const edges = withWait
+    ? [
+        { id: 'edge-1', source: 'trigger-1', target: 'wait-1', label: '' },
+        { id: 'edge-2', source: 'wait-1', target: 'condition-1', label: '' },
+        { id: 'edge-3', source: 'condition-1', target: 'team-1', label: 'Yes' },
+        { id: 'edge-4', source: 'condition-1', target: 'follow-up-1', label: 'No' },
+      ]
+    : [
+        { id: 'edge-1', source: 'trigger-1', target: 'condition-1', label: '' },
+        { id: 'edge-2', source: 'condition-1', target: 'team-1', label: 'Yes' },
+        { id: 'edge-3', source: 'condition-1', target: 'follow-up-1', label: 'No' },
+      ]
+
+  return createWorkflowDraftRow({ nodes, edges })
+}
+
+test('Gmail reply sync stores matched reply and updates lead status', async () => {
+  const supabase = createMockSupabase({
+    emailAccounts: [createEmailAccountRow()],
+    sentEmails: [createSentEmailRow()],
+    leads: [createLeadRow({ status: 'contacted' })],
+    campaignLeads: [createCampaignLeadRow({ outreach_status: 'sent' })],
+  })
+
+  const summary = await syncWorkspaceGmailReplies({ limit: 10 }, {
+    supabase,
+    workspaceId: 'workspace-1',
+    gmailThreadReader: async () => createGmailThread(),
+    skipReplySideEffects: true,
+  })
+
+  assert.equal(summary.scanned, 1)
+  assert.equal(summary.matched, 1)
+  assert.equal(summary.stored, 1)
+  assert.equal(supabase.tables.replies.length, 1)
+  assert.equal(supabase.tables.replies[0].gmail_message_id, 'gmail-reply-1')
+  assert.equal(supabase.tables.sent_emails[0].status, 'replied')
+  assert.equal(supabase.tables.campaign_leads[0].outreach_status, 'replied')
+  assert.equal(supabase.tables.leads[0].status, 'replied')
+})
+
+test('Gmail reply sync avoids duplicate replies', async () => {
+  const supabase = createMockSupabase({
+    emailAccounts: [createEmailAccountRow()],
+    sentEmails: [createSentEmailRow()],
+    replies: [createReplyRow()],
+  })
+
+  const summary = await syncWorkspaceGmailReplies({ limit: 10 }, {
+    supabase,
+    workspaceId: 'workspace-1',
+    gmailThreadReader: async () => createGmailThread(),
+    skipReplySideEffects: true,
+  })
+
+  assert.equal(summary.scanned, 1)
+  assert.equal(summary.matched, 1)
+  assert.equal(summary.stored, 0)
+  assert.equal(summary.duplicatesSkipped, 1)
+  assert.equal(supabase.tables.replies.length, 1)
+})
+
+test('condition.reply_received chooses Yes when stored reply exists', async () => {
+  const supabase = createMockSupabase({
+    workflowDrafts: [createReplyConditionWorkflow()],
+    leads: [createLeadRow()],
+    campaignLeads: [createCampaignLeadRow()],
+    replies: [createReplyRow()],
+  })
+
+  const execution = await startAndRun(supabase, {
+    leadId: 'lead-1',
+    campaignId: 'campaign-1',
+    context: {},
+  })
+  const conditionStep = execution.steps.find((step) => step.typeKey === 'condition.reply_received')
+
+  assert.equal(execution.status, 'completed')
+  assert.deepEqual(execution.steps.map((step) => step.nodeId), ['trigger-1', 'condition-1', 'team-1'])
+  assert.equal(conditionStep.output.selectedBranch, 'Yes')
+  assert.equal(conditionStep.output.replyId, 'reply-1')
+  assert.equal(conditionStep.output.fromEmail, 'Lead <lead@example.com>')
+})
+
+test('condition.reply_received chooses No when no stored reply exists', async () => {
+  const supabase = createMockSupabase({
+    workflowDrafts: [createReplyConditionWorkflow()],
+    leads: [createLeadRow()],
+    campaignLeads: [createCampaignLeadRow()],
+  })
+
+  const execution = await startAndRun(supabase, {
+    leadId: 'lead-1',
+    campaignId: 'campaign-1',
+    context: {},
+  })
+  const conditionStep = execution.steps.find((step) => step.typeKey === 'condition.reply_received')
+
+  assert.equal(execution.status, 'completed')
+  assert.deepEqual(execution.steps.map((step) => step.nodeId), ['trigger-1', 'condition-1', 'follow-up-1'])
+  assert.equal(conditionStep.output.selectedBranch, 'No')
+  assert.equal(conditionStep.output.message, 'No reply found.')
+})
+
+test('scheduled wait resume then reply condition checks stored replies', async () => {
+  const supabase = createMockSupabase({
+    workflowDrafts: [createReplyConditionWorkflow({ withWait: true })],
+    leads: [createLeadRow()],
+    campaignLeads: [createCampaignLeadRow()],
+    replies: [createReplyRow()],
+  })
+  const started = await startWorkflowExecution({
+    workflowDraftId: 'workflow-1',
+    leadId: 'lead-1',
+    campaignId: 'campaign-1',
+    context: {},
+  }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+  await runWorkflowExecution({ executionId: started.id }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+  supabase.tables.workflow_executions[0].scheduled_resume_at = '2026-09-30T11:00:00.000Z'
+
+  const summary = await resumeDueWorkflowExecutions({ now: '2026-09-30T12:00:00.000Z' }, {
+    supabase,
+    workspaceId: 'workspace-1',
+  })
+  const execution = summary.executions[0]
+  const conditionStep = execution.steps.find((step) => step.typeKey === 'condition.reply_received')
+
+  assert.equal(execution.status, 'completed')
+  assert.deepEqual(execution.steps.map((step) => step.nodeId), ['trigger-1', 'wait-1', 'condition-1', 'team-1'])
+  assert.equal(conditionStep.output.selectedBranch, 'Yes')
+  assert.equal(conditionStep.output.replyId, 'reply-1')
 })

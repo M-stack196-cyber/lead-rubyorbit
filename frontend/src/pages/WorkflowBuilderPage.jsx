@@ -59,6 +59,7 @@ import {
   resumeWorkflowExecution,
   retryWorkflowExecution,
   runWorkflowDraft,
+  syncGmailReplies,
   updateWorkflowDraft,
   validateWorkflowSchema,
 } from '@/services/api'
@@ -338,6 +339,8 @@ function WorkflowBuilderContent({ onNavigate }) {
   const [isWorkflowCancelLoading, setIsWorkflowCancelLoading] = useState(false)
   const [isWorkflowRetryLoading, setIsWorkflowRetryLoading] = useState(false)
   const [workflowRunRecipientEmail, setWorkflowRunRecipientEmail] = useState('')
+  const [isGmailReplySyncLoading, setIsGmailReplySyncLoading] = useState(false)
+  const [gmailReplySyncResult, setGmailReplySyncResult] = useState(null)
 
   const selectedNode = useMemo(
     () => nodes.find((node) => node.id === selectedNodeId) || null,
@@ -1010,7 +1013,6 @@ function WorkflowBuilderContent({ onNavigate }) {
       const execution = await runWorkflowDraft(workflowDraftId, {
         context: {
           controlledExecution: true,
-          replyReceived: false,
           ...(recipientEmail ? { recipientEmail } : {}),
         },
       })
@@ -1033,7 +1035,6 @@ function WorkflowBuilderContent({ onNavigate }) {
       const execution = await resumeWorkflowExecution(workflowExecution.id, {
         context: {
           controlledExecution: true,
-          replyReceived: false,
         },
       })
       setWorkflowExecution(execution)
@@ -1076,6 +1077,23 @@ function WorkflowBuilderContent({ onNavigate }) {
       setWorkflowExecutionError(error.message || 'Could not retry workflow execution.')
     } finally {
       setIsWorkflowRetryLoading(false)
+    }
+  }
+
+  async function handleSyncGmailReplies() {
+    setIsGmailReplySyncLoading(true)
+    setWorkflowExecutionError('')
+
+    try {
+      const result = await syncGmailReplies({ limit: 50 })
+      setGmailReplySyncResult(result)
+      const scannedLabel = result.scanned === 1 ? 'sent email' : 'sent emails'
+      const storedLabel = result.stored === 1 ? 'reply' : 'replies'
+      setMessage(`Gmail reply sync scanned ${result.scanned || 0} ${scannedLabel} and stored ${result.stored || 0} new ${storedLabel}.`)
+    } catch (error) {
+      setWorkflowExecutionError(error.message || 'Could not sync Gmail replies.')
+    } finally {
+      setIsGmailReplySyncLoading(false)
     }
   }
 
@@ -1304,6 +1322,20 @@ function WorkflowBuilderContent({ onNavigate }) {
                 {isWorkflowExecutionLoading ? 'Running...' : 'Run Workflow'}
               </button>
               <span className="text-xs font-medium text-emerald-700">Safety controls enabled</span>
+              <button
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 shadow-sm transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                onClick={handleSyncGmailReplies}
+                disabled={isGmailReplySyncLoading}
+              >
+                <RefreshCcw className="h-4 w-4" aria-hidden="true" />
+                {isGmailReplySyncLoading ? 'Syncing...' : 'Sync Gmail Replies'}
+              </button>
+              {gmailReplySyncResult ? (
+                <span className="text-xs font-medium text-blue-700">
+                  {gmailReplySyncResult.stored || 0} stored, {gmailReplySyncResult.duplicatesSkipped || 0} duplicate
+                </span>
+              ) : null}
             </div>
           ) : null}
           <button
@@ -1731,6 +1763,11 @@ function ExecutionResult({ error, execution, isCancelLoading, isLoading, isResum
             {step.typeKey === 'action.send_approved_email' && step.output?.emailStatus ? (
               <Badge variant="outline" className={getEmailStepStatusClass(step.output.emailStatus)}>
                 Email {step.output.emailStatus}
+              </Badge>
+            ) : null}
+            {step.typeKey === 'condition.reply_received' && step.output?.message ? (
+              <Badge variant="outline" className={step.output.replyReceived ? 'w-fit border-emerald-200 bg-emerald-50 text-emerald-700' : 'w-fit border-slate-200 bg-slate-50 text-slate-700'}>
+                {step.output.message}
               </Badge>
             ) : null}
             {step.output && Object.keys(step.output).length ? (

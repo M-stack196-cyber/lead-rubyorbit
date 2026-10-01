@@ -604,6 +604,17 @@ export async function disconnectGmailAccount(emailAccountId) {
   return payload.data
 }
 
+export async function syncGmailReplies(payload = {}) {
+  const response = await fetch(`${API_BASE_URL}/api/gmail/replies/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+
+  const parsed = await parseApiResponse(response)
+  return parsed.data
+}
+
 export async function getEmailSendingStatus() {
   const response = await fetch(`${API_BASE_URL}/api/email-sending/status`)
 
