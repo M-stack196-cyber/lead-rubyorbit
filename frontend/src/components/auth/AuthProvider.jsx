@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AuthContext } from './authContext'
-import { authRequired, restoreAuthSession, signInWithPassword, signOut } from '@/services/auth'
+import { authRequired, restoreAuthSession, signInWithPassword, signOut, signUpWithPassword } from '@/services/auth'
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
@@ -58,9 +58,23 @@ export function AuthProvider({ children }) {
     }
   }
 
+  async function signup(credentials) {
+    setIsLoading(true)
+    setError('')
+
+    try {
+      return await signUpWithPassword(credentials)
+    } catch (signupError) {
+      setError(signupError.message)
+      throw signupError
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   async function logout() {
     if (!authRequired) {
-      setError('Demo mode is active. Enable auth to use sign out.')
+      setError('Authentication is disabled for this local environment.')
       return
     }
 
@@ -79,6 +93,7 @@ export function AuthProvider({ children }) {
     logout,
     profile,
     session,
+    signup,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

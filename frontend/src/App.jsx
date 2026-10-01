@@ -6,7 +6,7 @@ import { DashboardPage } from '@/pages/DashboardPage'
 import { EmailAccountsPage } from '@/pages/EmailAccountsPage'
 import { LeadUploadsPage } from '@/pages/LeadUploadsPage'
 import { LeadsPage } from '@/pages/LeadsPage'
-import { LoginPage } from '@/pages/LoginPage'
+import { LoginPage, SignupPage } from '@/pages/LoginPage'
 import { NotificationsPage } from '@/pages/NotificationsPage'
 import {
   EmailDraftsPage,
@@ -61,11 +61,15 @@ function AppLoadingMessage() {
 export default function App() {
   const auth = useAuth()
   const [currentPage, setCurrentPage] = useState(getCurrentPage)
+  const [locationPath, setLocationPath] = useState(() => window.location.pathname)
+  const [authRoute, setAuthRoute] = useState(() => (window.location.pathname === '/signup' ? 'signup' : 'login'))
   const Page = pages[currentPage]
 
   useEffect(() => {
     function handleLocationChange() {
       setCurrentPage(getCurrentPage())
+      setLocationPath(window.location.pathname)
+      setAuthRoute(window.location.pathname === '/signup' ? 'signup' : 'login')
     }
 
     window.addEventListener('hashchange', handleLocationChange)
@@ -81,12 +85,46 @@ export default function App() {
     return <AppLoadingMessage />
   }
 
+  function handleAuthNavigate(path) {
+    window.history.pushState(null, '', path)
+    setLocationPath(path)
+    setAuthRoute(path === '/signup' ? 'signup' : 'login')
+    setCurrentPage(getCurrentPage())
+  }
+
   if (!auth.isAuthenticated) {
-    return <LoginPage error={auth.error} isLoading={auth.isLoading} onLogin={auth.login} />
+    if (locationPath !== '/login' && locationPath !== '/signup') {
+      window.history.replaceState(null, '', '/login')
+    }
+
+    if (authRoute === 'signup') {
+      return (
+        <SignupPage
+          error={auth.error}
+          isLoading={auth.isLoading}
+          onShowLogin={() => handleAuthNavigate('/login')}
+          onSignup={auth.signup}
+        />
+      )
+    }
+
+    return (
+      <LoginPage
+        error={auth.error}
+        isLoading={auth.isLoading}
+        onLogin={auth.login}
+        onShowSignup={() => handleAuthNavigate('/signup')}
+      />
+    )
+  }
+
+  if ((locationPath === '/login' || locationPath === '/signup') && currentPage === 'dashboard') {
+    window.history.replaceState(null, '', '/dashboard')
   }
 
   function handleNavigate(page) {
     window.history.pushState(null, '', `/${page}`)
+    setLocationPath(`/${page}`)
     setCurrentPage(page)
   }
 
@@ -100,9 +138,8 @@ export default function App() {
 
   return (
     <AppLayout
-      authRequired={auth.authRequired}
       currentPage={currentPage}
-      onLogout={auth.logout}
+      onLogout={auth.authRequired ? auth.logout : null}
       onNavigate={handleNavigate}
       profile={auth.profile}
     >

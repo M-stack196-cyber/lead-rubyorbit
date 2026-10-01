@@ -53,7 +53,6 @@ const navigationSections = [
 ]
 
 export function AppLayout({
-  authRequired = false,
   children,
   currentPage = 'dashboard',
   onLogout,
@@ -61,13 +60,15 @@ export function AppLayout({
   profile,
 }) {
   const userLabel =
-    profile?.teamMember?.full_name || profile?.teamMember?.email || profile?.user?.email || 'Demo user'
-  const roleLabel = profile?.role || profile?.workspace?.role || 'demo'
+    profile?.teamMember?.full_name || profile?.teamMember?.email || profile?.user?.email || 'Workspace user'
+  const userEmail = profile?.teamMember?.email || profile?.user?.email || ''
+  const roleLabel = profile?.role || profile?.workspace?.role || 'local access'
+  const workspaceLabel = profile?.workspace?.name || 'Local workspace'
   const visibleNavigationSections = navigationSections
     .map((section) => ({
       ...section,
       items: section.items.filter((item) => {
-        if (!item.roles?.length || roleLabel === 'demo') return true
+        if (!item.roles?.length || roleLabel === 'local access') return true
         return item.roles.includes(roleLabel)
       }),
     }))
@@ -85,11 +86,11 @@ export function AppLayout({
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 lg:flex">
-      <aside className="bg-slate-950 text-slate-100 lg:fixed lg:inset-y-0 lg:left-0 lg:w-72">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] lg:flex">
+      <aside className="bg-slate-950 text-slate-100 shadow-2xl lg:fixed lg:inset-y-0 lg:left-0 lg:w-72">
         <div className="flex h-full flex-col">
-          <div className="flex items-center gap-3 border-b border-slate-800 px-5 py-5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+          <div className="flex items-center gap-3 border-b border-slate-800/80 px-5 py-5">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-slate-950 shadow-sm">
               <Orbit className="h-5 w-5" aria-hidden="true" />
             </div>
             <div>
@@ -110,8 +111,8 @@ export function AppLayout({
                       href={getItemHref(item.page)}
                       key={item.label}
                       className={cn(
-                        'flex min-h-10 items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-slate-900 hover:text-white',
-                        item.page === currentPage && 'bg-slate-800 text-white shadow-sm ring-1 ring-slate-700',
+                        'flex min-h-10 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white',
+                        item.page === currentPage && 'bg-white text-slate-950 shadow-sm',
                         !item.page && 'cursor-default opacity-60 hover:bg-transparent hover:text-slate-300',
                       )}
                       aria-current={item.page === currentPage ? 'page' : undefined}
@@ -120,7 +121,7 @@ export function AppLayout({
                       <item.icon
                         className={cn(
                           'h-4 w-4 shrink-0 text-slate-500',
-                          item.page === currentPage && 'text-primary-foreground',
+                          item.page === currentPage && 'text-slate-950',
                         )}
                         aria-hidden="true"
                       />
@@ -132,27 +133,31 @@ export function AppLayout({
             ))}
           </nav>
 
-          <div className="mt-auto border-t border-slate-800 p-3">
-            <div className="rounded-md bg-slate-900 px-3 py-3">
-              <p className="truncate text-sm font-semibold text-white">{userLabel}</p>
-              <p className="mt-1 truncate text-xs text-slate-400">
-                {roleLabel}
-                {profile?.workspace?.name ? ` - ${profile.workspace.name}` : ''}
-              </p>
-              {authRequired && onLogout ? (
+          <div className="mt-auto border-t border-slate-800/80 p-3">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-3 shadow-lg">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white text-sm font-semibold text-slate-950">
+                  {String(userLabel || 'U').slice(0, 1).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-white">{userLabel}</p>
+                  {userEmail ? <p className="truncate text-xs text-slate-400">{userEmail}</p> : null}
+                </div>
+              </div>
+              <div className="mt-3 grid gap-1 rounded-lg bg-slate-950/70 px-3 py-2 text-xs text-slate-300">
+                <span className="truncate">Role: {roleLabel}</span>
+                <span className="truncate">Workspace: {workspaceLabel}</span>
+              </div>
+              {onLogout ? (
                 <button
-                  className="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md border border-slate-700 px-3 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
+                  className="mt-3 inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
                   type="button"
                   onClick={onLogout}
                 >
                   <LogOut className="h-4 w-4" aria-hidden="true" />
                   Sign out
                 </button>
-              ) : (
-                <p className="mt-3 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-300">
-                  Demo mode active
-                </p>
-              )}
+              ) : null}
             </div>
           </div>
         </div>

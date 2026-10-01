@@ -1171,222 +1171,163 @@ function WorkflowBuilderContent({ onNavigate }) {
   }, [backendCompatibilitySchemaJson, clearBackendCompatibilityValidation, previewJson])
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-slate-100 text-slate-950">
-      <header className="z-30 flex shrink-0 flex-col gap-3 border-b border-slate-200 bg-white px-4 py-3 shadow-sm xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
-          <button
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            type="button"
-            onClick={handleBackToDashboard}
-          >
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            Back to Dashboard
-          </button>
-          <div className="flex items-center gap-3 border-l border-slate-200 pl-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <Workflow className="h-5 w-5" aria-hidden="true" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold leading-5 text-slate-950">LeadRubyOrbit</p>
-              <p className="text-xs text-slate-500">Workflow Builder</p>
-            </div>
-          </div>
-          <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
-            Controlled workflow execution
-          </Badge>
-          <span className="text-xs font-medium text-slate-500">Run saved workflows with production safety controls enabled.</span>
-        </div>
-
-        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-start gap-2 xl:justify-end">
-          <label className="min-w-64 flex-1 xl:max-w-sm">
-            <span className="sr-only">Workflow name</span>
-            <input
-              className="min-h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-950 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-              type="text"
-              value={workflowName}
-              onChange={handleWorkflowNameChange}
-            />
-          </label>
-          <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
-            Draft
-          </Badge>
-          {isDirty ? (
-            <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
-              Unsaved changes
-            </Badge>
-          ) : null}
-          {hasMultipleTriggers ? (
-            <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
-              Multiple triggers detected
-            </Badge>
-          ) : null}
-          <button
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            type="button"
-            onClick={handleOpenDraftManager}
-          >
-            <Workflow className="h-4 w-4" aria-hidden="true" />
-            Saved Drafts
-          </button>
-          <button
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            type="button"
-            onClick={handleNewDraft}
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            New Draft
-          </button>
-          <button
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            type="button"
-            onClick={() => setIsLibraryCollapsed((isCollapsed) => !isCollapsed)}
-          >
-            {isLibraryCollapsed ? (
-              <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
-            ) : (
-              <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
-            )}
-            Blocks
-          </button>
-          <button
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            type="button"
-            onClick={() => setIsSettingsDrawerOpen((isOpen) => !isOpen)}
-          >
-            {isSettingsDrawerOpen ? (
-              <PanelRightClose className="h-4 w-4" aria-hidden="true" />
-            ) : (
-              <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
-            )}
-            Settings
-          </button>
-          <button
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-red-800"
-            type="button"
-            onClick={handleSaveDraft}
-          >
-            <Save className="h-4 w-4" aria-hidden="true" />
-            Save Draft
-          </button>
-          <button
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            type="button"
-            onClick={handleValidateWorkflow}
-          >
-            <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-            Validate
-          </button>
-          <button
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            type="button"
-            onClick={handlePreview}
-          >
-            <PlayCircle className="h-4 w-4" aria-hidden="true" />
-            Preview
-          </button>
-          {workflowDraftId ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className={workflowDraftIsActive ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-600'}>
-                {workflowDraftIsActive ? 'Active' : 'Inactive'}
-              </Badge>
+    <div className="flex h-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.10),transparent_34%),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] text-slate-950">
+      <header className="z-30 shrink-0 border-b border-slate-200/80 bg-white/90 px-4 py-4 shadow-[0_14px_40px_rgba(15,23,42,0.08)] backdrop-blur xl:px-6">
+        <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <button
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 shadow-sm transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
                 type="button"
-                onClick={handleToggleWorkflowActive}
-                disabled={!canToggleWorkflowActivation || isWorkflowActivationLoading}
+                onClick={handleBackToDashboard}
               >
-                <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                {isWorkflowActivationLoading ? 'Updating...' : workflowDraftIsActive ? 'Deactivate' : 'Activate'}
+                <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                Back
               </button>
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-950 text-white shadow-sm">
+                  <Workflow className="h-5 w-5" aria-hidden="true" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold leading-5 text-slate-950">LeadRubyOrbit</p>
+                    <Badge variant="outline" className="border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[0.68rem] font-semibold text-emerald-700 shadow-sm">
+                      <ShieldCheck className="mr-1 h-3 w-3" aria-hidden="true" />
+                      Controlled workflow execution
+                    </Badge>
+                  </div>
+                  <p className="mt-0.5 text-xs font-medium text-slate-500">Workflow Builder · production safety controls enabled</p>
+                </div>
+              </div>
             </div>
-          ) : null}
-          {canRunSavedWorkflow ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="min-w-64 flex-1 xl:max-w-xs">
-                <span className="text-xs font-semibold text-slate-600">Recipient email for controlled workflow run</span>
+
+            <div className="grid gap-3 xl:grid-cols-[minmax(18rem,34rem)_auto] xl:items-center">
+              <label className="min-w-0">
+                <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Workflow name</span>
                 <input
-                  className="mt-1 min-h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                  type="email"
-                  value={workflowRunRecipientEmail}
-                  onChange={(event) => setWorkflowRunRecipientEmail(event.target.value)}
-                  placeholder="optional@example.com"
+                  className="min-h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-base font-semibold text-slate-950 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  type="text"
+                  value={workflowName}
+                  onChange={handleWorkflowNameChange}
                 />
               </label>
-              <button
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                type="button"
-                onClick={handleRunWorkflow}
-                disabled={isWorkflowExecutionLoading}
-              >
-                <PlayCircle className="h-4 w-4" aria-hidden="true" />
-                {isWorkflowExecutionLoading ? 'Running...' : 'Run Workflow'}
-              </button>
-              <span className="text-xs font-medium text-emerald-700">Safety controls enabled</span>
-              <button
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 shadow-sm transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-                type="button"
-                onClick={handleSyncGmailReplies}
-                disabled={isGmailReplySyncLoading}
-              >
-                <RefreshCcw className="h-4 w-4" aria-hidden="true" />
-                {isGmailReplySyncLoading ? 'Syncing...' : 'Sync Gmail Replies'}
-              </button>
-              {gmailReplySyncResult ? (
-                <span className="text-xs font-medium text-blue-700">
-                  {gmailReplySyncResult.stored || 0} stored, {gmailReplySyncResult.duplicatesSkipped || 0} duplicate
-                </span>
-              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="border-slate-200 bg-white px-3 py-1 text-slate-700 shadow-sm">
+                  Draft
+                </Badge>
+                <Badge variant="outline" className={workflowDraftIsActive ? 'border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700 shadow-sm' : 'border-slate-200 bg-slate-50 px-3 py-1 text-slate-600 shadow-sm'}>
+                  <span className={cn('mr-2 h-2 w-2 rounded-full', workflowDraftIsActive ? 'bg-emerald-500' : 'bg-slate-400')} />
+                  {workflowDraftIsActive ? 'Active' : 'Inactive'}
+                </Badge>
+                {isDirty ? (
+                  <Badge variant="outline" className="border-amber-200 bg-amber-50 px-3 py-1 text-amber-700 shadow-sm">
+                    Unsaved changes
+                  </Badge>
+                ) : null}
+                {hasMultipleTriggers ? (
+                  <Badge variant="outline" className="border-amber-200 bg-amber-50 px-3 py-1 text-amber-700 shadow-sm">
+                    Multiple triggers detected
+                  </Badge>
+                ) : null}
+              </div>
             </div>
-          ) : null}
-          <button
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 shadow-sm transition hover:bg-amber-100"
-            type="button"
-            onClick={handleRunTest}
-          >
-            <TestTube2 className="h-4 w-4" aria-hidden="true" />
-            Run Test
-          </button>
-          <button
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-100"
-            type="button"
-            onClick={handleClearCanvas}
-          >
-            <Trash2 className="h-4 w-4" aria-hidden="true" />
-            Clear Canvas
-          </button>
-          <button
-            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-            type="button"
-            onClick={handleResetWorkflow}
-          >
-            <RefreshCcw className="h-4 w-4" aria-hidden="true" />
-            Reset
-          </button>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <ActionGroup label="Draft">
+                <ToolbarButton icon={Workflow} onClick={handleOpenDraftManager}>Saved Drafts</ToolbarButton>
+                <ToolbarButton icon={Plus} onClick={handleNewDraft}>New Draft</ToolbarButton>
+                <ToolbarButton icon={Save} onClick={handleSaveDraft} variant="primary">Save Draft</ToolbarButton>
+              </ActionGroup>
+              <ActionGroup label="View">
+                <ToolbarButton icon={isLibraryCollapsed ? PanelLeftOpen : PanelLeftClose} onClick={() => setIsLibraryCollapsed((isCollapsed) => !isCollapsed)}>Blocks</ToolbarButton>
+                <ToolbarButton icon={isSettingsDrawerOpen ? PanelRightClose : PanelRightOpen} onClick={() => setIsSettingsDrawerOpen((isOpen) => !isOpen)}>Settings</ToolbarButton>
+              </ActionGroup>
+              <ActionGroup label="Validation">
+                <ToolbarButton icon={CheckCircle2} onClick={handleValidateWorkflow}>Validate</ToolbarButton>
+                <ToolbarButton icon={PlayCircle} onClick={handlePreview}>Preview</ToolbarButton>
+                <ToolbarButton icon={TestTube2} onClick={handleRunTest} variant="warning">Run Test</ToolbarButton>
+              </ActionGroup>
+              <ActionGroup label="Reset">
+                <ToolbarButton icon={Trash2} onClick={handleClearCanvas} variant="danger">Clear Canvas</ToolbarButton>
+                <ToolbarButton icon={RefreshCcw} onClick={handleResetWorkflow}>Reset</ToolbarButton>
+              </ActionGroup>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-white/95 p-3 shadow-sm 2xl:w-[28rem]">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-slate-950">Execution controls</p>
+                <p className="mt-0.5 text-xs text-slate-500">Run saved drafts with guarded email and reply sync.</p>
+              </div>
+              <Badge variant="outline" className="border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[0.68rem] font-semibold text-emerald-700">
+                <ShieldCheck className="mr-1 h-3 w-3" aria-hidden="true" />
+                Safety controls enabled
+              </Badge>
+            </div>
+            {workflowDraftId ? (
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <ToolbarButton
+                  disabled={!canToggleWorkflowActivation || isWorkflowActivationLoading}
+                  icon={ShieldCheck}
+                  onClick={handleToggleWorkflowActive}
+                  variant="info"
+                >
+                  {isWorkflowActivationLoading ? 'Updating...' : workflowDraftIsActive ? 'Deactivate' : 'Activate'}
+                </ToolbarButton>
+              </div>
+            ) : null}
+            {canRunSavedWorkflow ? (
+              <div className="grid gap-3">
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-semibold text-slate-600">Recipient email for controlled workflow run</span>
+                  <input
+                    className="min-h-9 rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-950 outline-none transition focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20"
+                    type="email"
+                    value={workflowRunRecipientEmail}
+                    onChange={(event) => setWorkflowRunRecipientEmail(event.target.value)}
+                    placeholder="optional@example.com"
+                  />
+                </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <ToolbarButton disabled={isWorkflowExecutionLoading} icon={PlayCircle} onClick={handleRunWorkflow} variant="success">
+                    {isWorkflowExecutionLoading ? 'Running...' : 'Run Workflow'}
+                  </ToolbarButton>
+                  <ToolbarButton disabled={isGmailReplySyncLoading} icon={RefreshCcw} onClick={handleSyncGmailReplies} variant="info">
+                    {isGmailReplySyncLoading ? 'Syncing...' : 'Sync Gmail Replies'}
+                  </ToolbarButton>
+                  {gmailReplySyncResult ? (
+                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                      {gmailReplySyncResult.stored || 0} stored · {gmailReplySyncResult.duplicatesSkipped || 0} duplicate
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <p className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-500">
+                Save the draft and clear unsaved changes to run this workflow.
+              </p>
+            )}
+          </div>
         </div>
       </header>
 
-      {message ? (
-        <div className="shrink-0 border-b border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-800">
-          {message}
-        </div>
-      ) : null}
-      {currentBackendCompatibilityResult ? (
-        <div className="shrink-0 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800">
-          Backend validation will be saved with this draft.
-        </div>
-      ) : null}
-      {isBackendValidationStale ? (
-        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800">
-          Workflow changed after backend validation. Recheck with backend before saving validation status.
-        </div>
-      ) : null}
+      <div className="grid shrink-0 gap-2 px-4 py-3 xl:px-6">
+        {message ? <StatusAlert icon={CheckCircle2} tone="info">{message}</StatusAlert> : null}
+        {currentBackendCompatibilityResult ? (
+          <StatusAlert icon={ShieldCheck} tone="success">Backend validation will be saved with this draft.</StatusAlert>
+        ) : null}
+        {isBackendValidationStale ? (
+          <StatusAlert icon={RefreshCcw} tone="warning">Workflow changed after backend validation. Recheck with backend before saving validation status.</StatusAlert>
+        ) : null}
+      </div>
 
       <WorkflowSummaryCards summary={workflowSummary} />
 
-      <section className={workspaceGridClass}>
+      <section className={cn(workspaceGridClass, "px-4 pb-4 xl:px-6")}>
         {!isLibraryCollapsed ? (
-          <Card className="flex min-h-[360px] flex-col overflow-hidden xl:h-full xl:min-h-0">
-            <CardHeader className="shrink-0 border-b border-slate-100 p-4">
+          <Card className="flex min-h-[360px] flex-col overflow-hidden border-slate-200 bg-white/95 shadow-[0_18px_45px_rgba(15,23,42,0.08)] xl:h-full xl:min-h-0">
+            <CardHeader className="shrink-0 border-b border-slate-100 bg-slate-50/70 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <CardTitle className="text-base text-slate-950">Block Library</CardTitle>
@@ -1426,7 +1367,7 @@ function WorkflowBuilderContent({ onNavigate }) {
           </Card>
         ) : null}
 
-        <Card className="flex min-h-[560px] flex-col overflow-hidden xl:h-full xl:min-h-0">
+        <Card className="flex min-h-[560px] flex-col overflow-hidden border-slate-200 bg-white/95 shadow-[0_18px_45px_rgba(15,23,42,0.08)] xl:h-full xl:min-h-0">
           <CardHeader className="shrink-0 border-b border-slate-100 p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -1448,7 +1389,7 @@ function WorkflowBuilderContent({ onNavigate }) {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="min-h-0 flex-1 bg-slate-50 p-0">
+          <CardContent className="min-h-0 flex-1 bg-[radial-gradient(circle,#cbd5e1_1px,transparent_1px)] [background-size:22px_22px] p-0">
             <div className="h-full min-h-[520px]" ref={canvasRef} onDragOver={handleDragOver} onDrop={handleDrop}>
               <ReactFlow
                 colorMode="light"
@@ -1495,7 +1436,7 @@ function WorkflowBuilderContent({ onNavigate }) {
                     </div>
                   </div>
                 )}
-                <Background color="#cbd5e1" gap={18} size={1} />
+                <Background color="#94a3b8" gap={22} size={1} />
                 <Controls position="bottom-right" />
                 <MiniMap
                   nodeColor={(node) => minimapColors[node.data?.category] || '#e2e8f0'}
@@ -1606,6 +1547,9 @@ function WorkflowBuilderContent({ onNavigate }) {
             onCancel={handleCancelWorkflowExecution}
             onResume={handleResumeWorkflow}
             onRetry={handleRetryWorkflowExecution}
+            onSyncReplies={handleSyncGmailReplies}
+            isSyncRepliesLoading={isGmailReplySyncLoading}
+            syncRepliesResult={gmailReplySyncResult}
           />
         </Modal>
       ) : null}
@@ -1624,32 +1568,92 @@ function WorkflowBuilderContent({ onNavigate }) {
     </div>
   )
 }
-function WorkflowSummaryCards({ summary }) {
-  const cards = [
-    { label: 'Nodes', value: summary.nodes },
-    { label: 'Edges', value: summary.edges },
-    { label: 'Triggers', value: summary.triggers },
-    { label: 'Actions', value: summary.actions },
-    { label: 'Waits', value: summary.waits },
-    { label: 'Conditions', value: summary.conditions },
-  ]
+function ToolbarButton({ children, disabled = false, icon: Icon, onClick, variant = 'default' }) {
+  const variantClass = {
+    default: 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50',
+    primary: 'border-slate-950 bg-slate-950 text-white hover:bg-slate-800',
+    success: 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100',
+    info: 'border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100',
+    warning: 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100',
+    danger: 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100',
+  }[variant]
 
   return (
-    <div className="grid shrink-0 gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 sm:grid-cols-3 xl:grid-cols-6">
-      {cards.map((card) => (
-        <div className="rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm" key={card.label}>
-          <p className="text-[0.68rem] font-semibold uppercase tracking-wide text-slate-500">{card.label}</p>
-          <p className="mt-1 text-lg font-semibold leading-6 text-slate-950">{card.value}</p>
-        </div>
-      ))}
+    <button
+      className={cn(
+        'inline-flex min-h-9 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-semibold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60',
+        variantClass,
+      )}
+      disabled={disabled}
+      type="button"
+      onClick={onClick}
+    >
+      {Icon ? <Icon className="h-4 w-4" aria-hidden="true" /> : null}
+      {children}
+    </button>
+  )
+}
+
+function ActionGroup({ children, label }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-white/80 px-2 py-2 shadow-sm">
+      <span className="px-1 text-[0.66rem] font-semibold uppercase text-slate-400">{label}</span>
+      {children}
     </div>
   )
 }
 
-function ExecutionResult({ error, execution, isCancelLoading, isLoading, isResumeLoading, isRetryLoading, onCancel, onResume, onRetry }) {
+function StatusAlert({ children, icon: Icon, tone = 'info' }) {
+  const styles = {
+    info: 'border-blue-200 bg-blue-50 text-blue-800',
+    success: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    warning: 'border-amber-200 bg-amber-50 text-amber-800',
+    danger: 'border-red-200 bg-red-50 text-red-800',
+  }[tone]
+
+  return (
+    <div className={cn('flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium shadow-sm', styles)}>
+      {Icon ? <Icon className="h-4 w-4 shrink-0" aria-hidden="true" /> : null}
+      <span>{children}</span>
+    </div>
+  )
+}
+
+function WorkflowSummaryCards({ summary }) {
+  const cards = [
+    { label: 'Nodes', value: summary.nodes, icon: Route, tone: 'text-slate-700 bg-slate-100' },
+    { label: 'Edges', value: summary.edges, icon: GitBranch, tone: 'text-blue-700 bg-blue-50' },
+    { label: 'Triggers', value: summary.triggers, icon: Bell, tone: 'text-emerald-700 bg-emerald-50' },
+    { label: 'Actions', value: summary.actions, icon: Send, tone: 'text-rose-700 bg-rose-50' },
+    { label: 'Waits', value: summary.waits, icon: Clock, tone: 'text-amber-700 bg-amber-50' },
+    { label: 'Conditions', value: summary.conditions, icon: GitBranch, tone: 'text-violet-700 bg-violet-50' },
+  ]
+
+  return (
+    <div className="grid shrink-0 gap-3 px-4 pb-3 sm:grid-cols-3 xl:grid-cols-6 xl:px-6">
+      {cards.map((card) => {
+        const Icon = card.icon
+
+        return (
+          <div className="rounded-lg border border-slate-200 bg-white/90 px-3 py-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md" key={card.label}>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[0.68rem] font-semibold uppercase text-slate-500">{card.label}</p>
+              <span className={cn('flex h-8 w-8 items-center justify-center rounded-md', card.tone)}>
+                <Icon className="h-4 w-4" aria-hidden="true" />
+              </span>
+            </div>
+            <p className="mt-2 text-2xl font-semibold leading-7 text-slate-950">{card.value}</p>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ExecutionResult({ error, execution, isCancelLoading, isLoading, isResumeLoading, isRetryLoading, isSyncRepliesLoading, onCancel, onResume, onRetry, onSyncReplies, syncRepliesResult }) {
   if (isLoading) {
     return (
-      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-700">
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-semibold text-slate-700 shadow-sm">
         Running workflow...
       </div>
     )
@@ -1657,9 +1661,7 @@ function ExecutionResult({ error, execution, isCancelLoading, isLoading, isResum
 
   if (error) {
     return (
-      <div className="rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm font-medium text-red-700">
-        {error}
-      </div>
+      <StatusAlert icon={X} tone="danger">{error}</StatusAlert>
     )
   }
 
@@ -1677,101 +1679,87 @@ function ExecutionResult({ error, execution, isCancelLoading, isLoading, isResum
 
   return (
     <div className="grid gap-4">
-      <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm font-medium text-emerald-800">
-        Production safety controls enabled. Approval, wait, and email steps are recorded; real email sends require live mode, approval, and a valid recipient.
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {recipientEmail ? (
-          <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
-            Recipient {recipientEmail}
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-base font-semibold text-slate-950">Execution summary</p>
+            <p className="mt-1 text-sm text-slate-500">Production safety controls enabled for approval, wait, email, and reply steps.</p>
+          </div>
+          <Badge variant="outline" className={cn('px-3 py-1 capitalize shadow-sm', getExecutionStatusClass(execution.status))}>
+            {getExecutionStatusLabel(execution)}
           </Badge>
-        ) : null}
-        <Badge variant="outline" className={getExecutionStatusClass(execution.status)}>
-          {getExecutionStatusLabel(execution)}
-        </Badge>
-        <span className="text-sm font-medium text-slate-600">
-          {steps.length} step{steps.length === 1 ? '' : 's'}
-        </span>
-        {scheduledResumeAt ? (
-          <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
-            Scheduled {formatDraftDate(scheduledResumeAt)}
-          </Badge>
-        ) : null}
-        {execution.retryCount ? (
-          <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
-            Retried {execution.retryCount}
-          </Badge>
-        ) : null}
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-        {execution.status === 'paused' && execution.pauseReason !== 'scheduled_wait' ? (
-          <button
-            className="ml-auto inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-            type="button"
-            onClick={onResume}
-            disabled={isResumeLoading}
-          >
-            <PlayCircle className="h-4 w-4" aria-hidden="true" />
-            {isResumeLoading ? 'Resuming...' : 'Resume Workflow'}
-          </button>
-        ) : null}
-        {['running', 'paused'].includes(execution.status) ? (
-          <button
-            className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-            type="button"
-            onClick={onCancel}
-            disabled={isCancelLoading}
-          >
-            <StopCircle className="h-4 w-4" aria-hidden="true" />
-            {isCancelLoading ? 'Canceling...' : 'Cancel Execution'}
-          </button>
-        ) : null}
-        {execution.status === 'failed' ? (
-          <button
-            className="inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 shadow-sm transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-            type="button"
-            onClick={onRetry}
-            disabled={isRetryLoading}
-          >
-            <RefreshCcw className="h-4 w-4" aria-hidden="true" />
-            {isRetryLoading ? 'Retrying...' : 'Retry Execution'}
-          </button>
-        ) : null}
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <InfoPill label="Steps" value={steps.length} />
+          <InfoPill label="Recipient" value={recipientEmail || 'Not set'} />
+          <InfoPill label="Scheduled" value={scheduledResumeAt ? formatDraftDate(scheduledResumeAt) : 'None'} />
+          <InfoPill label="Retries" value={execution.retryCount || 0} />
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {execution.status === 'paused' && execution.pauseReason !== 'scheduled_wait' ? (
+            <ToolbarButton disabled={isResumeLoading} icon={PlayCircle} onClick={onResume} variant="success">
+              {isResumeLoading ? 'Resuming...' : 'Resume Workflow'}
+            </ToolbarButton>
+          ) : null}
+          {['running', 'paused'].includes(execution.status) ? (
+            <ToolbarButton disabled={isCancelLoading} icon={StopCircle} onClick={onCancel} variant="danger">
+              {isCancelLoading ? 'Canceling...' : 'Cancel Execution'}
+            </ToolbarButton>
+          ) : null}
+          {execution.status === 'failed' ? (
+            <ToolbarButton disabled={isRetryLoading} icon={RefreshCcw} onClick={onRetry} variant="info">
+              {isRetryLoading ? 'Retrying...' : 'Retry Execution'}
+            </ToolbarButton>
+          ) : null}
+          <ToolbarButton disabled={isSyncRepliesLoading} icon={RefreshCcw} onClick={onSyncReplies} variant="info">
+            {isSyncRepliesLoading ? 'Syncing...' : 'Sync Gmail Replies'}
+          </ToolbarButton>
+          {syncRepliesResult ? (
+            <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+              {syncRepliesResult.stored || 0} stored · {syncRepliesResult.duplicatesSkipped || 0} duplicate
+            </span>
+          ) : null}
         </div>
       </div>
-      {execution.errorMessage ? (
-        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm font-medium text-red-700">
-          {execution.errorMessage}
-        </div>
-      ) : null}
-      <div className="overflow-hidden rounded-md border border-slate-200">
-        {steps.map((step) => (
-          <div className="grid gap-2 border-b border-slate-100 bg-white p-3 last:border-b-0" key={step.id || step.nodeId}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-slate-950">{step.typeKey || step.nodeId}</p>
-                <p className="text-xs text-slate-500">{step.nodeId}</p>
+
+      {execution.errorMessage ? <StatusAlert icon={X} tone="danger">{execution.errorMessage}</StatusAlert> : null}
+
+      <div className="grid gap-3">
+        {steps.map((step, index) => (
+          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" key={step.id || step.nodeId}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">
+                  {index + 1}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-950">{step.typeKey || step.nodeId}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{step.nodeId}</p>
+                </div>
               </div>
-              <Badge variant="outline" className={getExecutionStatusClass(step.status)}>
+              <Badge variant="outline" className={cn('capitalize shadow-sm', getExecutionStatusClass(step.status))}>
                 {step.status}
               </Badge>
             </div>
-            {step.typeKey === 'wait.wait_days' && step.output?.scheduledResumeAt ? (
-              <Badge variant="outline" className="w-fit border-amber-200 bg-amber-50 text-amber-700">
-                Scheduled wait until {formatDraftDate(step.output.scheduledResumeAt)}
-              </Badge>
-            ) : null}
-            {step.typeKey === 'action.send_approved_email' && step.output?.emailStatus ? (
-              <Badge variant="outline" className={getEmailStepStatusClass(step.output.emailStatus)}>
-                Email {step.output.emailStatus}
-              </Badge>
-            ) : null}
-            {step.typeKey === 'condition.reply_received' && step.output?.message ? (
-              <Badge variant="outline" className={step.output.replyReceived ? 'w-fit border-emerald-200 bg-emerald-50 text-emerald-700' : 'w-fit border-slate-200 bg-slate-50 text-slate-700'}>
-                {step.output.message}
-              </Badge>
-            ) : null}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {step.typeKey === 'wait.wait_days' && step.output?.scheduledResumeAt ? (
+                <Badge variant="outline" className="w-fit border-amber-200 bg-amber-50 text-amber-700">
+                  Scheduled wait until {formatDraftDate(step.output.scheduledResumeAt)}
+                </Badge>
+              ) : null}
+              {step.typeKey === 'action.send_approved_email' && step.output?.emailStatus ? (
+                <Badge variant="outline" className={getEmailStepStatusClass(step.output.emailStatus)}>
+                  Email {step.output.emailStatus}
+                </Badge>
+              ) : null}
+              {step.typeKey === 'condition.reply_received' && step.output?.message ? (
+                <Badge variant="outline" className={step.output.replyReceived ? 'w-fit border-emerald-200 bg-emerald-50 text-emerald-700' : 'w-fit border-slate-200 bg-slate-50 text-slate-700'}>
+                  {step.output.message}
+                </Badge>
+              ) : null}
+            </div>
             {step.output && Object.keys(step.output).length ? (
-              <pre className="max-h-32 overflow-auto rounded-md bg-slate-950 p-3 text-xs leading-5 text-slate-100">
+              <pre className="mt-3 max-h-40 overflow-auto rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs leading-5 text-slate-100 shadow-inner">
                 {JSON.stringify(step.output, null, 2)}
               </pre>
             ) : null}
@@ -1815,11 +1803,17 @@ function BuilderTips() {
   ]
 
   return (
-    <section className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-blue-800">Builder Tips</h2>
-      <ul className="mt-2 grid gap-1 text-xs leading-5 text-blue-900">
+    <section className="rounded-lg border border-blue-100 bg-gradient-to-br from-blue-50 to-white px-3 py-3 shadow-sm">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase text-blue-800">
+        <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+        Builder Tips
+      </div>
+      <ul className="mt-3 grid gap-2 text-xs leading-5 text-blue-900">
         {tips.map((tip) => (
-          <li key={tip}>{tip}</li>
+          <li className="flex gap-2" key={tip}>
+            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
+            <span>{tip}</span>
+          </li>
         ))}
       </ul>
     </section>
@@ -2340,12 +2334,12 @@ function LibraryBlock({ block, category, onAdd, onDragStart }) {
 
   return (
     <div
-      className="group rounded-md border border-slate-200 bg-white px-3 py-3 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:shadow"
+      className="group rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/30 hover:shadow-md"
       draggable
       onDragStart={(event) => onDragStart(event, block, category)}
     >
       <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-600 group-hover:bg-white">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-600 transition group-hover:bg-white group-hover:text-blue-700">
           <Icon className="h-4 w-4" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
@@ -2376,13 +2370,13 @@ function WorkflowBlockNode({ data, selected }) {
   return (
     <div
       className={cn(
-        'w-64 rounded-md border bg-white px-4 py-3 text-left shadow-sm transition',
+        'w-64 rounded-xl border bg-white px-4 py-3 text-left shadow-[0_12px_30px_rgba(15,23,42,0.10)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_40px_rgba(15,23,42,0.14)]',
         selected ? 'border-primary ring-2 ring-primary/20' : 'border-slate-200',
       )}
     >
       <Handle className="!h-3 !w-3 !border-2 !border-white !bg-slate-500" position={Position.Top} type="target" />
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-600">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
           <Icon className="h-5 w-5" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
@@ -2673,9 +2667,9 @@ function Modal({ children, onClose, title }) {
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4 py-6">
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-        <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4 py-6 backdrop-blur-sm">
+      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+        <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-slate-50/90 px-5 py-4 backdrop-blur">
           <h2 className="text-base font-semibold text-slate-950">{title}</h2>
           <button
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50"

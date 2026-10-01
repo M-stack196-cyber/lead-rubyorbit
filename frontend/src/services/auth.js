@@ -8,7 +8,7 @@ import {
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || ''
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 
-export const authRequired = import.meta.env.VITE_AUTH_REQUIRED === 'true'
+export const authRequired = import.meta.env.VITE_AUTH_REQUIRED !== 'false'
 
 export function isAuthConfigured() {
   return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY)
@@ -39,6 +39,34 @@ function mapSupabaseSession(payload) {
           email: payload.user.email,
         }
       : null,
+  }
+}
+
+export async function signUpWithPassword({ email, password }) {
+  if (!isAuthConfigured()) {
+    throw new Error('Supabase auth is not configured for the frontend.')
+  }
+
+  const response = await fetch(getSupabaseAuthUrl('/signup'), {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email, password }),
+  })
+  const payload = await parseSupabaseAuthResponse(response)
+
+  return {
+    user: payload.user
+      ? {
+          id: payload.user.id,
+          email: payload.user.email,
+        }
+      : null,
+    message: payload.user?.identities?.length === 0
+      ? 'This email may already be registered. Sign in or ask an administrator for workspace access.'
+      : 'Account request received. Confirm your email if required, then ask an administrator to grant workspace access.',
   }
 }
 

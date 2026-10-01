@@ -81,47 +81,51 @@ export function DashboardPage() {
 
   return (
     <>
-      <header className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <Badge variant="outline" className="mb-3 bg-white">
-            Phase 17 Visibility
-          </Badge>
-          <h1 className="text-3xl font-semibold tracking-normal text-slate-950">
-            LeadRubyOrbit Dashboard
-          </h1>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Campaign activity, lead state, notifications, and pending team work in one place.
-          </p>
+      <header className="rounded-2xl border border-slate-200 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <Badge variant="outline" className="mb-3 border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 shadow-sm">
+              Workspace Overview
+            </Badge>
+            <h1 className="text-3xl font-semibold tracking-tight text-slate-950">
+              LeadRubyOrbit Dashboard
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Campaign activity, lead state, notifications, and pending team work in one operational command center.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              type="button"
+              onClick={loadDashboardSummary}
+              disabled={status === 'loading'}
+            >
+              {status === 'loading' ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <RefreshCcw className="h-4 w-4" aria-hidden="true" />
+              )}
+              Refresh
+            </button>
+            <button
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+              type="button"
+              onClick={() => handleDownload('campaigns')}
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Export Campaigns
+            </button>
+            <button
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+              type="button"
+              onClick={() => handleDownload('senders')}
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Export Senders
+            </button>
+          </div>
         </div>
-        <button
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-          type="button"
-          onClick={loadDashboardSummary}
-          disabled={status === 'loading'}
-        >
-          {status === 'loading' ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <RefreshCcw className="h-4 w-4" aria-hidden="true" />
-          )}
-          Refresh
-        </button>
-        <button
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-          type="button"
-          onClick={() => handleDownload('campaigns')}
-        >
-          <Download className="h-4 w-4" aria-hidden="true" />
-          Export Campaigns
-        </button>
-        <button
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-          type="button"
-          onClick={() => handleDownload('senders')}
-        >
-          <Download className="h-4 w-4" aria-hidden="true" />
-          Export Senders
-        </button>
       </header>
 
       {error ? (
@@ -142,8 +146,8 @@ export function DashboardPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-        <Card>
-          <CardHeader>
+        <Card className="border-slate-200 bg-white/90 shadow-sm">
+          <CardHeader className="pb-3">
             <CardTitle className="text-base text-slate-950">Performance Rates</CardTitle>
             <CardDescription>
               Send, reply, no-reply, and approval rates from current workspace data.
@@ -167,8 +171,8 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="border-slate-200 bg-white/90 shadow-sm">
+          <CardHeader className="pb-3">
             <CardTitle className="text-base text-slate-950">Campaign Performance</CardTitle>
             <CardDescription>Top campaign reporting rows by current send volume.</CardDescription>
           </CardHeader>
@@ -179,8 +183,8 @@ export function DashboardPage() {
       </section>
 
       <section>
-        <Card>
-          <CardHeader>
+        <Card className="border-slate-200 bg-white/90 shadow-sm">
+          <CardHeader className="pb-3">
             <CardTitle className="text-base text-slate-950">Sender Performance</CardTitle>
             <CardDescription>Per-account reply and no-reply performance.</CardDescription>
           </CardHeader>
@@ -191,8 +195,8 @@ export function DashboardPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-        <Card>
-          <CardHeader>
+        <Card className="border-slate-200 bg-white/90 shadow-sm">
+          <CardHeader className="pb-3">
             <CardTitle className="text-base text-slate-950">Campaign Overview</CardTitle>
             <CardDescription>
               {counts.totalCampaigns || 0} campaign(s) in the workspace. Select a row to open campaign detail.
@@ -203,8 +207,8 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="border-slate-200 bg-white/90 shadow-sm">
+          <CardHeader className="pb-3">
             <CardTitle className="text-base text-slate-950">Pending Actions</CardTitle>
             <CardDescription>Manual work waiting for team attention.</CardDescription>
           </CardHeader>
@@ -220,8 +224,8 @@ export function DashboardPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <Card>
-          <CardHeader>
+        <Card className="border-slate-200 bg-white/90 shadow-sm">
+          <CardHeader className="pb-3">
             <CardTitle className="text-base text-slate-950">Recent Activity</CardTitle>
             <CardDescription>Latest replies, sends, and notifications.</CardDescription>
           </CardHeader>
@@ -230,8 +234,8 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="border-slate-200 bg-white/90 shadow-sm">
+          <CardHeader className="pb-3">
             <CardTitle className="text-base text-slate-950">Notification Summary</CardTitle>
             <CardDescription>{counts.unreadNotifications || 0} unread notification(s).</CardDescription>
           </CardHeader>
@@ -246,13 +250,15 @@ export function DashboardPage() {
 
 function MetricCard({ icon, label, value }) {
   return (
-    <Card>
+    <Card className="border-slate-200 bg-white/90 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
         <CardTitle className="text-slate-600">{label}</CardTitle>
-        {createElement(icon, { className: 'h-4 w-4 text-slate-500', 'aria-hidden': true })}
+        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+          {createElement(icon, { className: 'h-4 w-4', 'aria-hidden': true })}
+        </span>
       </CardHeader>
       <CardContent>
-        <div className="text-3xl font-semibold text-slate-950">{value}</div>
+        <div className="text-3xl font-semibold tracking-tight text-slate-950">{value}</div>
       </CardContent>
     </Card>
   )
@@ -269,17 +275,17 @@ function CampaignOverviewTable({ campaigns }) {
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-slate-200">
+    <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+          <thead className="bg-slate-100/80 text-left text-xs font-semibold uppercase text-slate-500">
             <tr>
               <th className="px-4 py-3">Campaign</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Updated</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200 bg-white">
+          <tbody className="divide-y divide-slate-100 bg-white">
             {campaigns.map((campaign) => (
               <tr
                 key={campaign.id}
@@ -315,10 +321,10 @@ function CampaignPerformanceTable({ rows }) {
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-slate-200">
+    <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+          <thead className="bg-slate-100/80 text-left text-xs font-semibold uppercase text-slate-500">
             <tr>
               <th className="px-4 py-3">Campaign</th>
               <th className="px-4 py-3">Leads</th>
@@ -328,9 +334,9 @@ function CampaignPerformanceTable({ rows }) {
               <th className="px-4 py-3">No-reply rate</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200 bg-white">
+          <tbody className="divide-y divide-slate-100 bg-white">
             {sortedRows.map((row) => (
-              <tr key={row.campaignId} className="align-top">
+              <tr key={row.campaignId} className="align-top transition hover:bg-slate-50">
                 <td className="min-w-52 px-4 py-3">
                   <p className="font-medium text-slate-950">{row.campaignName}</p>
                   <p className="mt-1 text-xs text-slate-500">{row.status}</p>
@@ -361,10 +367,10 @@ function SenderPerformanceTable({ rows }) {
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-slate-200">
+    <div className="overflow-hidden rounded-xl border border-slate-200 shadow-sm">
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+          <thead className="bg-slate-100/80 text-left text-xs font-semibold uppercase text-slate-500">
             <tr>
               <th className="px-4 py-3">Sender</th>
               <th className="px-4 py-3">Provider</th>
@@ -375,9 +381,9 @@ function SenderPerformanceTable({ rows }) {
               <th className="px-4 py-3">No-reply rate</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-200 bg-white">
+          <tbody className="divide-y divide-slate-100 bg-white">
             {sortedRows.map((row) => (
-              <tr key={row.emailAccountId} className="align-top">
+              <tr key={row.emailAccountId} className="align-top transition hover:bg-slate-50">
                 <td className="min-w-56 px-4 py-3 font-medium text-slate-950">
                   {row.emailAddress}
                 </td>
@@ -410,7 +416,7 @@ function ActivityList({ items }) {
   return (
     <div className="space-y-3">
       {items.slice(0, 10).map((item) => (
-        <div className="rounded-md border border-slate-200 bg-slate-50 p-3" key={item.id}>
+        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-blue-200 hover:shadow-md" key={item.id}>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -436,7 +442,7 @@ function ActivityList({ items }) {
 
 function InfoTile({ label, value }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+    <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
       <p className="text-xs font-medium uppercase tracking-normal text-slate-500">{label}</p>
       <p className="mt-1 break-words font-medium text-slate-900">{value}</p>
     </div>
@@ -445,7 +451,7 @@ function InfoTile({ label, value }) {
 
 function StatusPill({ value }) {
   return (
-    <span className="inline-flex rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700">
+    <span className="inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm">
       {value || '-'}
     </span>
   )
@@ -453,7 +459,7 @@ function StatusPill({ value }) {
 
 function EmptyState({ text }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
+    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-6 text-center text-sm font-medium text-slate-500">
       {text}
     </div>
   )
