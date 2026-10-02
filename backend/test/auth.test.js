@@ -4,7 +4,11 @@ import { beforeEach, test } from 'node:test'
 
 import { getHealth } from '../src/controllers/healthController.js'
 import { env, validateProductionEnv } from '../src/config/env.js'
-import { getGmailStatusController } from '../src/modules/gmail/gmail.controller.js'
+import {
+  buildGmailOAuthCallbackLogDetails,
+  getGmailStatusController,
+  handleGmailOAuthCallbackController,
+} from '../src/modules/gmail/gmail.controller.js'
 import {
   createGoogleOAuthState,
   hashGoogleOAuthState,
@@ -24,6 +28,7 @@ import {
 
 beforeEach(() => {
   env.auth.required = true
+  env.clientUrl = 'http://localhost:5173'
   env.security.tokenEncryptionKey = '12345678901234567890123456789012'
   env.emailSend.mode = 'mock'
   env.emailSend.liveApproved = false
@@ -77,6 +82,73 @@ test('gmail status controller returns sanitized status without tokens', async ()
   assert.equal(typeof res.payload.data.configured, 'boolean')
   assert.equal('accessToken' in res.payload.data, false)
   assert.equal('refreshToken' in res.payload.data, false)
+})
+
+test('gmail oauth callback logs safe failure details and preserves frontend redirect', async () => {
+  const warnings = []
+  const originalWarn = console.warn
+  console.warn = (...args) => warnings.push(args)
+
+  try {
+    const res = {
+      redirectedTo: null,
+      redirect(url) {
+        this.redirectedTo = url
+      },
+    }
+    const req = {
+      query: {
+        state: 'opaque-state-secret',
+        error: 'access_denied',
+        error_description: 'User denied access.',
+      },
+    }
+
+    await handleGmailOAuthCallbackController(req, res)
+
+    assert.equal(res.redirectedTo, 'http://localhost:5173/email-accounts?gmail=error')
+    assert.equal(warnings.length, 1)
+    assert.equal(warnings[0][0], 'Gmail OAuth callback failed:')
+
+    const details = warnings[0][1]
+    assert.equal(details.message, 'Google OAuth callback requires code and state.')
+    assert.equal(details.code, 400)
+    assert.equal(details.googleOAuthResponseError, 'access_denied')
+    assert.equal(details.googleOAuthResponseErrorDescription, 'User denied access.')
+    assert.equal(details.stateValidationResult, 'not_validated_missing_code')
+    assert.equal(details.redirectUri, env.google.oauthRedirectUri)
+
+    const serializedDetails = JSON.stringify(details)
+    assert.equal(serializedDetails.includes('opaque-state-secret'), false)
+  } finally {
+    console.warn = originalWarn
+  }
+})
+
+test('gmail oauth callback log detail builder omits auth code and full state', () => {
+  const details = buildGmailOAuthCallbackLogDetails(
+    Object.assign(new Error('OAuth failed.'), {
+      code: 'invalid_grant',
+      gmailOAuthCallbackContext: {
+        stateValidationResult: 'validated',
+        emailAccountId: 'email-account-1',
+        redirectUri: 'https://backend.example.com/api/gmail/oauth/callback',
+      },
+    }),
+    {
+      code: 'secret-auth-code',
+      state: 'secret-state-value',
+      error: 'server_error',
+      error_description: 'Provider returned an error.',
+    },
+  )
+
+  const serializedDetails = JSON.stringify(details)
+
+  assert.equal(details.code, 'invalid_grant')
+  assert.equal(details.emailAccountId, 'email-account-1')
+  assert.equal(serializedDetails.includes('secret-auth-code'), false)
+  assert.equal(serializedDetails.includes('secret-state-value'), false)
 })
 
 test('google oauth state is opaque and hashable for server-side persistence', () => {

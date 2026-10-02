@@ -13,6 +13,44 @@ function buildFrontendRedirect(status) {
   return url.toString()
 }
 
+function firstQueryValue(value) {
+  if (Array.isArray(value)) {
+    return value[0]
+  }
+
+  return value
+}
+
+function pickErrorCode(error) {
+  return error?.code || error?.statusCode || error?.status || null
+}
+
+function pickGoogleOAuthError(error) {
+  return (
+    error?.response?.data?.error ||
+    error?.response?.data?.error_description ||
+    error?.errors?.[0]?.reason ||
+    null
+  )
+}
+
+export function buildGmailOAuthCallbackLogDetails(error, query = {}) {
+  return {
+    message: error?.message || 'Unknown Gmail OAuth callback error.',
+    code: pickErrorCode(error),
+    googleOAuthResponseError: firstQueryValue(query.error) || error?.response?.data?.error || null,
+    googleOAuthResponseErrorDescription:
+      firstQueryValue(query.error_description) ||
+      error?.response?.data?.error_description ||
+      pickGoogleOAuthError(error),
+    stateValidationResult:
+      error?.gmailOAuthCallbackContext?.stateValidationResult ||
+      (query.state ? 'not_validated' : 'missing_state'),
+    emailAccountId: error?.gmailOAuthCallbackContext?.emailAccountId || null,
+    redirectUri: error?.gmailOAuthCallbackContext?.redirectUri || env.google.oauthRedirectUri,
+  }
+}
+
 export async function getGmailStatusController(_req, res, next) {
   try {
     res.json({
@@ -48,7 +86,11 @@ export async function handleGmailOAuthCallbackController(req, res) {
     })
 
     res.redirect(buildFrontendRedirect('connected'))
-  } catch {
+  } catch (error) {
+    console.warn(
+      'Gmail OAuth callback failed:',
+      buildGmailOAuthCallbackLogDetails(error, req.query),
+    )
     res.redirect(buildFrontendRedirect('error'))
   }
 }

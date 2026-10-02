@@ -45,6 +45,15 @@ function createHttpError(message, statusCode = 400) {
   return error
 }
 
+function attachGmailOAuthCallbackContext(error, context) {
+  error.gmailOAuthCallbackContext = {
+    ...(error.gmailOAuthCallbackContext || {}),
+    ...context,
+  }
+
+  return error
+}
+
 function mapGmailAccount(row) {
   return {
     id: row.id,
@@ -231,12 +240,38 @@ export async function createGmailConnectUrl(emailAccountId, context = {}) {
 }
 
 export async function handleGmailOAuthCallback({ code, state }) {
-  if (!code || !state) {
-    throw createHttpError('Google OAuth callback requires code and state.', 400)
+  const callbackContext = {
+    redirectUri: env.google.oauthRedirectUri,
+    stateValidationResult: 'not_started',
+    emailAccountId: null,
   }
 
-  const supabase = getSupabaseClient()
-  const validatedState = await consumePersistedGoogleOAuthState(supabase, state)
+  if (!code || !state) {
+    callbackContext.stateValidationResult = state ? 'not_validated_missing_code' : 'missing_state'
+    throw attachGmailOAuthCallbackContext(
+      createHttpError('Google OAuth callback requires code and state.', 400),
+      callbackContext,
+    )
+  }
+
+  let supabase
+
+  try {
+    supabase = getSupabaseClient()
+  } catch (error) {
+    throw attachGmailOAuthCallbackContext(error, callbackContext)
+  }
+  let validatedState
+
+  try {
+    callbackContext.stateValidationResult = 'validating'
+    validatedState = await consumePersistedGoogleOAuthState(supabase, state)
+    callbackContext.stateValidationResult = 'validated'
+    callbackContext.emailAccountId = validatedState?.emailAccountId || null
+  } catch (error) {
+    callbackContext.stateValidationResult = 'invalid_or_expired'
+    throw attachGmailOAuthCallbackContext(error, callbackContext)
+  }
 
   if (
     !validatedState?.emailAccountId ||
@@ -244,15 +279,35 @@ export async function handleGmailOAuthCallback({ code, state }) {
     !validatedState?.teamMemberId ||
     !validatedState?.csrfToken
   ) {
-    throw createHttpError('Google OAuth state is invalid or expired.', 400)
+    callbackContext.stateValidationResult = 'malformed'
+    throw attachGmailOAuthCallbackContext(
+      createHttpError('Google OAuth state is invalid or expired.', 400),
+      callbackContext,
+    )
   }
 
-  await requireActiveWorkspaceMembership(supabase, validatedState)
+  try {
+    await requireActiveWorkspaceMembership(supabase, validatedState)
+  } catch (error) {
+    throw attachGmailOAuthCallbackContext(error, callbackContext)
+  }
 
-  const account = await getEmailAccountForGmail(supabase, validatedState.emailAccountId, {
-    workspaceId: validatedState.workspaceId,
-  })
-  const oauth2Client = createGoogleOAuthClient()
+  let account
+
+  try {
+    account = await getEmailAccountForGmail(supabase, validatedState.emailAccountId, {
+      workspaceId: validatedState.workspaceId,
+    })
+  } catch (error) {
+    throw attachGmailOAuthCallbackContext(error, callbackContext)
+  }
+  let oauth2Client
+
+  try {
+    oauth2Client = createGoogleOAuthClient()
+  } catch (error) {
+    throw attachGmailOAuthCallbackContext(error, callbackContext)
+  }
 
   try {
     const { tokens } = await oauth2Client.getToken(code)
@@ -300,7 +355,7 @@ export async function handleGmailOAuthCallback({ code, state }) {
       .eq('id', account.id)
       .eq('workspace_id', validatedState.workspaceId)
 
-    throw error
+    throw attachGmailOAuthCallbackContext(error, callbackContext)
   }
 }
 
