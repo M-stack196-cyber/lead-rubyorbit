@@ -12,8 +12,9 @@ import { parseTxtFile } from './parsers/txtParser.js'
 import { parseDocxFile } from './parsers/docxParser.js'
 import { parsePdfFile } from './parsers/pdfParser.js'
 import { getCurrentWorkspaceId, scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
+import { getLeadUploadStoragePath } from './uploadStorage.js'
 
-const previewDir = path.resolve('uploads/lead-previews')
+const previewDir = getLeadUploadStoragePath('lead-previews')
 
 function createHttpError(message, statusCode = 400) {
   const error = new Error(message)

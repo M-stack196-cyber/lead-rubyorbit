@@ -12,8 +12,9 @@ import {
 import { permissions, requirePermission } from '../../middleware/permissions.js'
 import { sensitiveRateLimit } from '../../middleware/rateLimit.js'
 import { auditAction } from '../../middleware/audit.js'
+import { getLeadUploadStoragePath } from './uploadStorage.js'
 
-const uploadDir = path.resolve('uploads/raw')
+const uploadDir = getLeadUploadStoragePath('raw')
 
 fs.mkdirSync(uploadDir, { recursive: true })
 
