@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import { env } from './config/env.js'
 import { apiRoutes } from './routes/index.js'
+import { healthRouter } from './routes/healthRoutes.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { requestLogger } from './middleware/requestLogger.js'
 import { securityHeaders } from './middleware/securityHeaders.js'
@@ -20,6 +21,7 @@ export function createApp() {
   app.use(express.json({ limit: env.security.jsonBodyLimit }))
   app.use(requestLogger)
 
+  app.use('/health', healthRouter)
   app.use('/api', apiRoutes)
 
   app.use(errorHandler)
