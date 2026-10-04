@@ -2404,6 +2404,9 @@ function EmailSendingPanel({
   const selectedAccount = activeAccounts.find((account) => account.id === selectedEmailAccountId)
   const isLiveMode = emailSendingStatus?.mode === 'live'
   const hasActiveAccount = Boolean(selectedEmailAccountId)
+  const selectedGmailReady =
+    selectedAccount?.provider === 'gmail' &&
+    (selectedAccount.gmailOAuthReady || selectedAccount.gmailTokenStatus === 'connected')
   const liveBlockedReason =
     isLiveMode &&
     hasActiveAccount &&
@@ -2412,7 +2415,7 @@ function EmailSendingPanel({
       : isLiveMode &&
           hasActiveAccount &&
           selectedAccount?.provider === 'gmail' &&
-          selectedAccount?.gmailTokenStatus !== 'connected'
+          !selectedGmailReady
         ? 'Gmail must be connected with Google OAuth before live sending.'
         : ''
   const canSend = hasActiveAccount && !liveBlockedReason
@@ -2465,7 +2468,11 @@ function EmailSendingPanel({
                 {account.accountName || account.emailAddress} - {account.sentToday || 0}/
                 {account.dailySendLimit} today
                 {isLiveMode && account.provider === 'gmail'
-                  ? ` - Gmail ${account.gmailTokenStatus || 'disconnected'}`
+                  ? ` - Gmail ${
+                      account.gmailOAuthReady || account.gmailTokenStatus === 'connected'
+                        ? 'connected'
+                        : account.gmailTokenStatus || 'disconnected'
+                    }`
                   : isLiveMode && account.provider === 'smtp'
                     ? ' - SMTP configured'
                   : ''}

@@ -1,6 +1,7 @@
 import { env } from '../../config/env.js'
 import { createSupabaseServiceClient } from '../../config/supabase.js'
 import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
+import { isGmailOAuthReady } from '../gmail/gmail.accountStatus.js'
 import { sendGmailMessage } from '../gmail/gmail.sender.js'
 import { sendSmtpMessage } from '../smtp/smtp.sender.js'
 import { sendMockEmail } from './emailSending.mockSender.js'
@@ -315,7 +316,7 @@ async function releaseSendSlot(supabase, account, reservation) {
 }
 
 function validateLiveEmailAccount(account) {
-  if (account.provider === 'gmail' && account.gmail_token_status !== 'connected') {
+  if (account.provider === 'gmail' && !isGmailOAuthReady(account)) {
     throw createHttpError('Gmail must be connected with Google OAuth before live sending.', 400)
   }
 
@@ -331,7 +332,7 @@ function validateLiveEmailAccount(account) {
   }
 }
 
-async function sendDraftThroughProvider(draft, account) {
+async function sendDraftThroughProvider(draft, account, sender = sendGmailMessage) {
   if (getSendMode() === 'mock') {
     return sendMockEmail({
       campaignLeadId: draft.campaign_lead_id,
@@ -344,10 +345,10 @@ async function sendDraftThroughProvider(draft, account) {
     return sendSmtpMessage({ account, draft })
   }
 
-  return sendGmailMessage({ account, draft })
+  return sender({ account, draft })
 }
 
-async function sendDraftWithClient(supabase, draft, account) {
+async function sendDraftWithClient(supabase, draft, account, { sender = sendGmailMessage } = {}) {
   validateDraft(draft)
 
   const existingSentEmail = await getExistingSentEmail(supabase, draft.id)
@@ -361,7 +362,7 @@ async function sendDraftWithClient(supabase, draft, account) {
   let sendResult
 
   try {
-    sendResult = await sendDraftThroughProvider(draft, account)
+    sendResult = await sendDraftThroughProvider(draft, account, sender)
     providerSendSucceeded = getSendMode() === 'live'
   } catch (error) {
     await releaseSendSlot(supabase, account, reservation)
@@ -713,18 +714,18 @@ export async function sendWorkflowApprovedEmail({
   }
 }
 
-export async function sendEmailDraft(draftId, payload = {}) {
-  const supabase = getSupabaseClient()
+export async function sendEmailDraft(draftId, payload = {}, options = {}) {
+  const supabase = options.supabase || getSupabaseClient()
   const [draft, account] = await Promise.all([
     getDraftById(supabase, draftId),
     getEmailAccountById(supabase, payload.emailAccountId),
   ])
 
-  return sendDraftWithClient(supabase, draft, account)
+  return sendDraftWithClient(supabase, draft, account, { sender: options.sender })
 }
 
-export async function sendCampaignEmails(campaignId, payload = {}) {
-  const supabase = getSupabaseClient()
+export async function sendCampaignEmails(campaignId, payload = {}, options = {}) {
+  const supabase = options.supabase || getSupabaseClient()
   const account = await getEmailAccountById(supabase, payload.emailAccountId)
 
   const { data, error: draftsError } = await scopeWorkspace(
@@ -757,7 +758,9 @@ export async function sendCampaignEmails(campaignId, payload = {}) {
         continue
       }
 
-      const sentEmail = await sendDraftWithClient(supabase, draft, account)
+      const sentEmail = await sendDraftWithClient(supabase, draft, account, {
+        sender: options.sender,
+      })
       summary.sent += 1
       summary.results.push({ draftId: draft.id, status: 'sent', sentEmail })
     } catch (error) {

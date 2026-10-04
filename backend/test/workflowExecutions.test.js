@@ -13,7 +13,9 @@ import {
   startWorkflowExecution,
   triggerLeadAddedToCampaignWorkflows,
 } from '../src/modules/workflowExecutions/workflowExecutions.service.js'
+import { sendCampaignEmails } from '../src/modules/emailSending/emailSending.service.js'
 import { syncWorkspaceGmailReplies } from '../src/modules/replyMonitoring/replyMonitoring.service.js'
+import { runWithWorkspace } from '../src/middleware/workspace.js'
 
 afterEach(() => {
   env.auth.required = true
@@ -944,6 +946,128 @@ test('workflow send approved email blocks when recipient is missing', async () =
   assert.equal(sendStep.output.emailStatus, 'blocked')
   assert.equal(sendStep.output.blockedReasons.includes('Recipient email is missing.'), true)
   assert.equal(supabase.tables.sent_emails.length, 0)
+})
+
+test('connected Gmail account with stale error status is available for campaign live send', async () => {
+  env.emailSend.mode = 'live'
+  env.emailSend.liveApproved = true
+  const sentDrafts = []
+  const supabase = createMockSupabase({
+    emailDrafts: [
+      createEmailDraftRow({
+        status: 'approved',
+        leads: createLeadRow({ email: 'buyer@example.com' }),
+      }),
+    ],
+    emailAccounts: [
+      createEmailAccountRow({
+        gmail_token_status: 'error',
+        gmail_refresh_token_encrypted: 'encrypted-refresh-token',
+        gmail_access_token_encrypted: 'encrypted-access-token',
+      }),
+    ],
+  })
+
+  const summary = await runWithWorkspace('workspace-1', () =>
+    sendCampaignEmails(
+      'campaign-1',
+      { emailAccountId: 'account-1' },
+      {
+        supabase,
+        sender: async ({ account, draft }) => {
+          sentDrafts.push({ account, draft })
+          return {
+            messageId: 'gmail-message-1',
+            threadId: 'gmail-thread-1',
+            sentAt: '2026-09-30T12:30:00.000Z',
+          }
+        },
+      },
+    ),
+  )
+
+  assert.equal(summary.sent, 1)
+  assert.equal(summary.blocked, 0)
+  assert.equal(sentDrafts.length, 1)
+  assert.equal(sentDrafts[0].account.email_address, 'incdatamart@gmail.com')
+  assert.equal(supabase.tables.sent_emails.length, 1)
+})
+
+test('disconnected Gmail account without OAuth refresh token blocks campaign live send', async () => {
+  env.emailSend.mode = 'live'
+  env.emailSend.liveApproved = true
+  let senderCalls = 0
+  const supabase = createMockSupabase({
+    emailDrafts: [
+      createEmailDraftRow({
+        status: 'approved',
+        leads: createLeadRow({ email: 'buyer@example.com' }),
+      }),
+    ],
+    emailAccounts: [
+      createEmailAccountRow({
+        gmail_token_status: 'error',
+        gmail_refresh_token_encrypted: null,
+        gmail_access_token_encrypted: null,
+      }),
+    ],
+  })
+
+  const summary = await runWithWorkspace('workspace-1', () =>
+    sendCampaignEmails(
+      'campaign-1',
+      { emailAccountId: 'account-1' },
+      {
+        supabase,
+        sender: async () => {
+          senderCalls += 1
+          throw new Error('Sender should not be called when Gmail is disconnected.')
+        },
+      },
+    ),
+  )
+
+  assert.equal(summary.sent, 0)
+  assert.equal(summary.blocked, 1)
+  assert.equal(summary.results[0].message, 'Gmail must be connected with Google OAuth before live sending.')
+  assert.equal(senderCalls, 0)
+  assert.equal(supabase.tables.sent_emails.length, 0)
+})
+
+test('campaign approved draft does not call live Gmail sender when live approval flag is off', async () => {
+  env.emailSend.mode = 'live'
+  env.emailSend.liveApproved = false
+  let senderCalls = 0
+  const supabase = createMockSupabase({
+    emailDrafts: [
+      createEmailDraftRow({
+        status: 'approved',
+        leads: createLeadRow({ email: 'buyer@example.com' }),
+      }),
+    ],
+    emailAccounts: [createEmailAccountRow()],
+  })
+
+  const summary = await runWithWorkspace('workspace-1', () =>
+    sendCampaignEmails(
+      'campaign-1',
+      { emailAccountId: 'account-1' },
+      {
+        supabase,
+        sender: async () => {
+          senderCalls += 1
+          throw new Error('Sender should not be called without live approval flag.')
+        },
+      },
+    ),
+  )
+
+  assert.equal(summary.sent, 1)
+  assert.equal(summary.blocked, 0)
+  assert.equal(summary.results[0].status, 'sent')
+  assert.equal(senderCalls, 0)
+  assert.equal(supabase.tables.sent_emails.length, 1)
+  assert.match(supabase.tables.sent_emails[0].provider_message_id, /^mock_msg_/)
 })
 
 test('workflow direct send requires recorded approval before live sending', async () => {

@@ -1,6 +1,7 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
 import { scopeWorkspace, withWorkspaceFields } from '../../middleware/workspace.js'
 import { encryptSecret } from '../../utils/secretCrypto.js'
+import { getGmailOAuthStatus, isGmailOAuthReady } from '../gmail/gmail.accountStatus.js'
 
 const allowedProviders = new Set(['smtp', 'gmail', 'outlook', 'custom'])
 const allowedStatuses = new Set(['draft', 'active', 'disabled', 'archived', 'error'])
@@ -20,6 +21,7 @@ const listSelect = `
   gmail_email,
   gmail_connected_at,
   gmail_token_status,
+  gmail_refresh_token_encrypted,
   gmail_token_expires_at,
   gmail_scope,
   gmail_last_error,
@@ -87,6 +89,9 @@ function validateStatus(status) {
 }
 
 function mapEmailAccount(row) {
+  const gmailOAuthReady = isGmailOAuthReady(row)
+  const gmailTokenStatus = getGmailOAuthStatus(row)
+
   return {
     id: row.id,
     provider: row.provider,
@@ -100,10 +105,11 @@ function mapEmailAccount(row) {
     lastUsedAt: row.last_used_at,
     gmailEmail: row.gmail_email,
     gmailConnectedAt: row.gmail_connected_at,
-    gmailTokenStatus: row.gmail_token_status || 'disconnected',
+    gmailTokenStatus,
+    gmailOAuthReady,
     gmailTokenExpiresAt: row.gmail_token_expires_at,
     gmailScope: row.gmail_scope,
-    gmailLastError: row.gmail_last_error,
+    gmailLastError: gmailOAuthReady ? null : row.gmail_last_error,
     smtpHost: row.smtp_host,
     smtpPort: row.smtp_port,
     smtpUsername: row.smtp_username,
