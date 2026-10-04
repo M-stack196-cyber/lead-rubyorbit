@@ -14,7 +14,11 @@ import {
   triggerLeadAddedToCampaignWorkflows,
 } from '../src/modules/workflowExecutions/workflowExecutions.service.js'
 import { sendCampaignEmails } from '../src/modules/emailSending/emailSending.service.js'
-import { syncWorkspaceGmailReplies } from '../src/modules/replyMonitoring/replyMonitoring.service.js'
+import {
+  checkCampaignReplies,
+  getReplyMonitoringStatus,
+  syncWorkspaceGmailReplies,
+} from '../src/modules/replyMonitoring/replyMonitoring.service.js'
 import { runWithWorkspace } from '../src/middleware/workspace.js'
 
 afterEach(() => {
@@ -1589,6 +1593,130 @@ test('Gmail reply sync stores matched reply and updates lead status', async () =
   assert.equal(supabase.tables.sent_emails[0].status, 'replied')
   assert.equal(supabase.tables.campaign_leads[0].outreach_status, 'replied')
   assert.equal(supabase.tables.leads[0].status, 'replied')
+})
+
+test('Gmail reply monitoring uses account with stale error status when refresh token exists', async () => {
+  const supabase = createMockSupabase({
+    emailAccounts: [
+      createEmailAccountRow({
+        gmail_token_status: 'error',
+        gmail_refresh_token_encrypted: 'encrypted-refresh-token',
+      }),
+    ],
+    sentEmails: [createSentEmailRow()],
+    leads: [createLeadRow({ status: 'contacted' })],
+    campaignLeads: [createCampaignLeadRow({ outreach_status: 'sent' })],
+  })
+
+  const summary = await syncWorkspaceGmailReplies({ limit: 10 }, {
+    supabase,
+    workspaceId: 'workspace-1',
+    gmailThreadReader: async () => createGmailThread(),
+    skipReplySideEffects: true,
+  })
+
+  assert.equal(summary.scanned, 1)
+  assert.equal(summary.matched, 1)
+  assert.equal(summary.stored, 1)
+  assert.equal(summary.errors, 0)
+  assert.equal(supabase.tables.replies.length, 1)
+})
+
+test('Gmail reply monitoring blocks account without refresh token safely', async () => {
+  const supabase = createMockSupabase({
+    emailAccounts: [
+      createEmailAccountRow({
+        gmail_token_status: 'error',
+        gmail_refresh_token_encrypted: null,
+        gmail_access_token_encrypted: null,
+      }),
+    ],
+    sentEmails: [createSentEmailRow()],
+  })
+
+  const summary = await checkCampaignReplies('campaign-1', {
+    supabase,
+    workspaceId: 'workspace-1',
+    gmailThreadReader: async () => {
+      throw new Error('Reader should not be called without Gmail OAuth readiness.')
+    },
+    skipReplySideEffects: true,
+  })
+
+  assert.equal(summary.checked, 0)
+  assert.equal(summary.failed, 1)
+  assert.equal(summary.results[0].message, 'Gmail account is not connected. Reconnect Gmail OAuth.')
+  assert.equal(supabase.tables.replies.length, 0)
+})
+
+test('campaign reply check is not failed by stale gmail token status', async () => {
+  const supabase = createMockSupabase({
+    emailAccounts: [
+      createEmailAccountRow({
+        gmail_token_status: 'error',
+        gmail_refresh_token_encrypted: 'encrypted-refresh-token',
+      }),
+    ],
+    sentEmails: [createSentEmailRow()],
+  })
+
+  const summary = await checkCampaignReplies('campaign-1', {
+    supabase,
+    workspaceId: 'workspace-1',
+    gmailThreadReader: async () => ({
+      id: 'gmail-thread-1',
+      messages: [
+        {
+          gmailMessageId: 'gmail-message-1',
+          gmailThreadId: 'gmail-thread-1',
+          fromEmail: 'Inc Data Mart <incdatamart@gmail.com>',
+          fromEmailAddress: 'incdatamart@gmail.com',
+          toEmail: 'lead@example.com',
+          subject: 'Hello',
+          bodyPreview: 'Original message.',
+          receivedAt: '2026-09-30T12:00:00.000Z',
+          rawPayload: { id: 'gmail-message-1' },
+        },
+      ],
+    }),
+    skipReplySideEffects: true,
+  })
+
+  assert.equal(summary.checked, 1)
+  assert.equal(summary.replied, 0)
+  assert.equal(summary.newRepliesSaved, 0)
+  assert.equal(summary.failed, 0)
+})
+
+test('reply monitoring status reports readiness without returning token material', async () => {
+  const supabase = createMockSupabase({
+    emailAccounts: [
+      createEmailAccountRow({
+        gmail_token_status: 'error',
+        gmail_refresh_token_encrypted: 'encrypted-refresh-token',
+        gmail_access_token_encrypted: 'encrypted-access-token',
+      }),
+    ],
+  })
+  const warnings = []
+  const originalWarn = console.warn
+  console.warn = (...args) => warnings.push(args)
+
+  try {
+    const status = await getReplyMonitoringStatus({ supabase, workspaceId: 'workspace-1' })
+    const serializedStatus = JSON.stringify(status)
+    const serializedWarnings = JSON.stringify(warnings)
+
+    assert.equal(status.connectedGmailAccounts, 1)
+    assert.equal(serializedStatus.includes('encrypted-refresh-token'), false)
+    assert.equal(serializedStatus.includes('encrypted-access-token'), false)
+    assert.equal(serializedStatus.includes('client_secret'), false)
+    assert.equal(serializedStatus.includes('auth-code'), false)
+    assert.equal(serializedWarnings.includes('encrypted-refresh-token'), false)
+    assert.equal(serializedWarnings.includes('encrypted-access-token'), false)
+  } finally {
+    console.warn = originalWarn
+  }
 })
 
 test('Gmail reply sync avoids duplicate replies', async () => {

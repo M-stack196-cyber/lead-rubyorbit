@@ -1,4 +1,5 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
+import { isGmailOAuthReady } from '../gmail/gmail.accountStatus.js'
 import { getGoogleOAuthScopes } from '../gmail/gmail.oauthClient.js'
 import { createNotificationIfMissing } from '../notifications/notifications.service.js'
 import { createPendingDecisionForReply } from '../teamDecisions/teamDecisions.service.js'
@@ -194,12 +195,11 @@ export async function getReplyMonitoringStatus(context = {}) {
   const supabase = getClient(context)
   const workspaceId = getWorkspaceId(context)
   const scopes = getGoogleOAuthScopes()
-  const { count, error } = await scopeWorkspace(
-    supabase.from('email_accounts').select('id', { count: 'exact', head: true }),
+  const { data, error } = await scopeWorkspace(
+    supabase.from('email_accounts').select(accountSelect),
     workspaceId,
   )
     .eq('provider', 'gmail')
-    .eq('gmail_token_status', 'connected')
 
   if (error) {
     throw createHttpError(error.message, 500)
@@ -207,7 +207,7 @@ export async function getReplyMonitoringStatus(context = {}) {
 
   return {
     gmailReadonlyAvailable: getReadonlyAvailable(scopes),
-    connectedGmailAccounts: count || 0,
+    connectedGmailAccounts: (data || []).filter(isGmailOAuthReady).length,
     message: 'Reply monitoring is manual in this phase. No automatic follow-ups are sent.',
   }
 }
@@ -223,7 +223,7 @@ export async function checkSentEmailReplies(sentEmailId, context = {}) {
     throw createHttpError('Reply monitoring only supports Gmail email accounts in this phase.', 400)
   }
 
-  if (account.gmail_token_status !== 'connected') {
+  if (!isGmailOAuthReady(account)) {
     throw createHttpError('Gmail account is not connected. Reconnect Gmail OAuth.', 400)
   }
 
@@ -454,13 +454,12 @@ async function getDefaultGmailReplyAccount(supabase, workspaceId) {
     workspaceId,
   )
     .eq('provider', 'gmail')
-    .eq('gmail_token_status', 'connected')
 
   if (error) {
     throw createHttpError(error.message, 500)
   }
 
-  const accounts = data || []
+  const accounts = (data || []).filter(isGmailOAuthReady)
   return accounts.find((account) =>
     [account.email_address, account.gmail_email]
       .filter(Boolean)
