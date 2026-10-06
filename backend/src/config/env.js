@@ -16,7 +16,12 @@ export const env = {
     privateIntegrationToken: process.env.GHL_PRIVATE_INTEGRATION_TOKEN || '',
     locationId: process.env.GHL_LOCATION_ID || '',
     workflowId: process.env.GHL_WORKFLOW_ID || '',
-    apiBaseUrl: process.env.GHL_API_BASE_URL || 'https://services.leadconnectorhq.com',
+    pipelineId: process.env.GHL_PIPELINE_ID || '',
+    pipelineStageId: process.env.GHL_PIPELINE_STAGE_ID || '',
+    apiBaseUrl:
+      process.env.GHL_API_BASE ||
+      process.env.GHL_API_BASE_URL ||
+      'https://services.leadconnectorhq.com',
   },
   emailSend: {
     mode: process.env.EMAIL_SEND_MODE || 'mock',

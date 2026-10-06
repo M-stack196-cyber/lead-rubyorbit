@@ -132,16 +132,18 @@ Phase 4 adds the GoHighLevel integration foundation only:
 
 Mock mode is the default and does not require real GoHighLevel credentials. No real GoHighLevel contacts or workflow enrollments are created in mock mode.
 
-Live mode is scaffolded only. Real live sync requires `GHL_PRIVATE_INTEGRATION_TOKEN`, `GHL_LOCATION_ID`, and `GHL_WORKFLOW_ID`; if any are missing, the backend returns a clear error.
+Live mode creates GoHighLevel contacts when `GHL_PRIVATE_INTEGRATION_TOKEN` and `GHL_LOCATION_ID` are configured. `GHL_WORKFLOW_ID`, `GHL_PIPELINE_ID`, and `GHL_PIPELINE_STAGE_ID` are optional follow-on sync settings.
 
 ### GHL Environment Variables
 
 ```bash
 GHL_MODE=mock
+GHL_API_BASE=https://services.leadconnectorhq.com
 GHL_PRIVATE_INTEGRATION_TOKEN=
 GHL_LOCATION_ID=
 GHL_WORKFLOW_ID=
-GHL_API_BASE_URL=https://services.leadconnectorhq.com
+GHL_PIPELINE_ID=
+GHL_PIPELINE_STAGE_ID=
 ```
 
 Phase 4 intentionally does not implement AI email generation, email sending, reply checking, follow-ups, authentication, or notification workflows.
@@ -415,7 +417,9 @@ Backend deployment variables:
 - `GHL_PRIVATE_INTEGRATION_TOKEN`
 - `GHL_LOCATION_ID`
 - `GHL_WORKFLOW_ID`
-- `GHL_API_BASE_URL`
+- `GHL_PIPELINE_ID`
+- `GHL_PIPELINE_STAGE_ID`
+- `GHL_API_BASE`
 - `AUTH_REQUIRED`
 - `TOKEN_ENCRYPTION_KEY`
 - `JSON_BODY_LIMIT`

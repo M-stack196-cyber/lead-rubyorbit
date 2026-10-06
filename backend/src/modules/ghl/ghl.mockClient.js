@@ -14,5 +14,12 @@ export function createGhlMockClient({ workflowId } = {}) {
         enrolled: true,
       }
     },
+
+    async createOpportunity() {
+      return {
+        opportunityId: 'mock_ghl_opportunity',
+        created: true,
+      }
+    },
   }
 }

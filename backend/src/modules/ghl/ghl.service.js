@@ -1,10 +1,16 @@
 import { createSupabaseServiceClient } from '../../config/supabase.js'
 import { env } from '../../config/env.js'
 import { createGhlClient, getGhlSettingsStatus } from './ghl.client.js'
-import { scopeWorkspace } from '../../middleware/workspace.js'
+import { runWithWorkspace, scopeWorkspace } from '../../middleware/workspace.js'
+
+let supabaseFactory = createSupabaseServiceClient
+
+export function setGhlSupabaseFactoryForTests(factory) {
+  supabaseFactory = factory || createSupabaseServiceClient
+}
 
 function getSupabaseClient() {
-  const supabase = createSupabaseServiceClient()
+  const supabase = supabaseFactory()
 
   if (!supabase) {
     const error = new Error('Supabase service client is not configured.')
@@ -19,9 +25,24 @@ export function getSettingsStatus() {
   return getGhlSettingsStatus()
 }
 
+export function getGhlStatus(_workspaceId) {
+  return getSettingsStatus()
+}
+
 export async function syncCampaignToGhl(campaignId) {
   const rows = await getCampaignLeadRows(campaignId)
   return syncRows(campaignId, rows.filter((row) => row.ghl_sync_status !== 'synced'))
+}
+
+export async function syncCampaignLeadsToGhl(workspaceId, campaignId) {
+  return runWithWorkspace(workspaceId, () => syncCampaignToGhl(campaignId))
+}
+
+export async function syncCampaignLeadToGhl(workspaceId, campaignLeadId) {
+  return runWithWorkspace(workspaceId, async () => {
+    const row = await getCampaignLeadRow(campaignLeadId)
+    return syncRows(row.campaign_id, [row])
+  })
 }
 
 export async function retryFailedGhlSync(campaignId) {
@@ -59,26 +80,19 @@ async function syncRows(campaignId, rowsToSync) {
   const client = createGhlClient()
   let synced = 0
   let failed = 0
+  const warnings = []
 
   for (const row of rowsToSync) {
     try {
-      const contact = await client.createContact({
-        campaignLeadId: row.id,
-        lead: row.leads,
-      })
-      const workflow = await client.enrollContactInWorkflow({
-        contactId: contact.contactId,
-        workflowId: env.ghl.workflowId,
-        lead: row.leads,
-      })
+      const result = await syncOneRow(client, row)
 
       const { error: updateError } = await scopeWorkspace(
         supabase.from('campaign_leads').update({
-          ghl_contact_id: contact.contactId,
+          ghl_contact_id: result.contactId,
           ghl_sync_status: 'synced',
           ghl_sync_error: null,
           ghl_synced_at: new Date().toISOString(),
-          ghl_workflow_id: workflow.workflowId || env.ghl.workflowId || 'mock_ghl_workflow_default',
+          ghl_workflow_id: result.workflowId || row.ghl_workflow_id || null,
           outreach_status: 'synced_to_ghl',
         }),
       )
@@ -89,13 +103,14 @@ async function syncRows(campaignId, rowsToSync) {
       }
 
       synced += 1
+      warnings.push(...result.warnings.map((warning) => ({ campaignLeadId: row.id, ...warning })))
     } catch (syncError) {
       failed += 1
 
       await scopeWorkspace(
         supabase.from('campaign_leads').update({
           ghl_sync_status: 'failed',
-          ghl_sync_error: syncError.message || 'GHL sync failed.',
+          ghl_sync_error: safeErrorMessage(syncError),
           outreach_status: 'ghl_failed',
         }),
       )
@@ -109,7 +124,100 @@ async function syncRows(campaignId, rowsToSync) {
     synced,
     skipped,
     failed,
+    warnings,
   }
+}
+
+async function syncOneRow(client, row) {
+  const lead = row.leads || {}
+  const campaign = row.campaigns || {}
+  const contactPayload = buildContactPayload({ lead, campaign })
+  const warnings = []
+
+  const contact = await client.createContact({
+    campaignLeadId: row.id,
+    lead,
+    contact: contactPayload,
+  })
+  const contactId = contact.contactId
+  let workflowId = row.ghl_workflow_id || null
+
+  if (env.ghl.mode !== 'live' || env.ghl.workflowId) {
+    try {
+      const workflow = await client.enrollContactInWorkflow({
+        contactId,
+        workflowId: env.ghl.workflowId,
+        lead,
+      })
+      workflowId = workflow.workflowId || env.ghl.workflowId || 'mock_ghl_workflow_default'
+    } catch (workflowError) {
+      warnings.push({
+        type: 'workflow',
+        message: safeErrorMessage(workflowError),
+      })
+    }
+  }
+
+  if (env.ghl.pipelineId) {
+    try {
+      await client.createOpportunity({
+        opportunity: buildOpportunityPayload({ contactId, lead, campaign }),
+      })
+    } catch (opportunityError) {
+      warnings.push({
+        type: 'opportunity',
+        message: safeErrorMessage(opportunityError),
+      })
+    }
+  }
+
+  return {
+    contactId,
+    workflowId,
+    warnings,
+  }
+}
+
+function buildContactPayload({ lead, campaign }) {
+  const payload = {
+    locationId: env.ghl.locationId,
+    name: lead.name || lead.email || lead.company || 'LeadRubyOrbit Lead',
+    email: lead.email,
+    source: 'LeadRubyOrbit',
+    tags: uniqueCompact([campaign.name, lead.source, 'rubyorbit']),
+  }
+
+  if (lead.phone) {
+    payload.phone = lead.phone
+  }
+
+  return payload
+}
+
+function buildOpportunityPayload({ contactId, lead, campaign }) {
+  const payload = {
+    pipelineId: env.ghl.pipelineId,
+    locationId: env.ghl.locationId,
+    contactId,
+    name: `${campaign.name || 'LeadRubyOrbit'} - ${lead.name || lead.email || 'Lead'}`,
+    status: 'open',
+  }
+
+  if (env.ghl.pipelineStageId) {
+    payload.pipelineStageId = env.ghl.pipelineStageId
+  }
+
+  return payload
+}
+
+function uniqueCompact(values) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]
+}
+
+function safeErrorMessage(error) {
+  const message = String(error?.message || 'GHL sync failed.')
+  const token = env.ghl.privateIntegrationToken
+  return token ? message.replaceAll(token, '[redacted]') : message
 }
 
 async function getCampaignById(campaignId) {
@@ -150,6 +258,10 @@ async function getCampaignLeadRows(campaignId) {
         ghl_synced_at,
         ghl_workflow_id,
         created_at,
+        campaigns (
+          id,
+          name
+        ),
         leads (
           id,
           name,
@@ -175,6 +287,55 @@ async function getCampaignLeadRows(campaignId) {
   }
 
   return data || []
+}
+
+async function getCampaignLeadRow(campaignLeadId) {
+  const supabase = getSupabaseClient()
+  const { data, error: rowError } = await scopeWorkspace(
+    supabase.from('campaign_leads').select(
+      `
+        id,
+        campaign_id,
+        lead_id,
+        ghl_contact_id,
+        ghl_sync_status,
+        ghl_sync_error,
+        ghl_synced_at,
+        ghl_workflow_id,
+        created_at,
+        campaigns (
+          id,
+          name
+        ),
+        leads (
+          id,
+          name,
+          email,
+          phone,
+          company,
+          website,
+          linkedin_url,
+          location,
+          source,
+          status
+        )
+      `,
+    ),
+  )
+    .eq('id', campaignLeadId)
+    .single()
+
+  if (rowError) {
+    const error = new Error(
+      rowError.code === 'PGRST116' ? 'Campaign lead not found.' : rowError.message,
+    )
+    error.statusCode = rowError.code === 'PGRST116' ? 404 : 500
+    throw error
+  }
+
+  await getCampaignById(data.campaign_id)
+
+  return data
 }
 
 function buildSummary(rows = []) {
